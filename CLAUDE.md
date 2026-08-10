@@ -19,6 +19,7 @@
 
 - DO NOT commit while `npm run lint` exits non-zero; fix every biome error first and never bypass with `--no-verify`.
 - Major tasks are done in a new branch, never directly on `main`. Before considering the task done, run `npm test` and `npm run build`, fix any failures, then squash-merge the branch into `main`.
+- Always use `/commit-commands:commit` skill to create commits.
 
 ## DB
 
