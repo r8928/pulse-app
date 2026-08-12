@@ -1,0 +1,13 @@
+# Biome formats with lineEnding "lf". Without this, Windows checkouts convert to
+# CRLF and every file reports as modified the moment the formatter touches it.
+* text=auto eol=lf
+
+# Binary — never normalise.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.xlsx binary

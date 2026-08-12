@@ -1,0 +1,65 @@
+{
+  "name": "Pulse",
+  "direction": "dense data-first admin",
+  "source": "app/theme/colors.js and app/theme/theme.js are authoritative; this file mirrors them",
+  "color": {
+    "structure": {
+      "background": "#f7f8fa",
+      "surface": "#ffffff",
+      "surfaceMuted": "#f1f3f6",
+      "border": "#dfe3e8",
+      "borderStrong": "#c3cad3"
+    },
+    "text": {
+      "primary": "#1a1f26",
+      "secondary": "#5a6472",
+      "onAccent": "#ffffff"
+    },
+    "action": {
+      "accent": "#2f5bb7",
+      "accentHover": "#254a99",
+      "accentSurface": "#eaf0fb",
+      "focusRing": "#1a56db"
+    },
+    "status": {
+      "success": { "text": "#1b5e20", "surface": "#e8f5e9", "border": "#a5d6a7" },
+      "warning": { "text": "#7a4f01", "surface": "#fff4e5", "border": "#ffcc80" },
+      "danger": { "text": "#8c1d18", "surface": "#fdecea", "border": "#ef9a9a" },
+      "info": { "text": "#0b4f6c", "surface": "#e5f3f9", "border": "#90caf9" },
+      "neutral": { "text": "#41474f", "surface": "#eef0f3", "border": "#cdd2d9" }
+    }
+  },
+  "typography": {
+    "fontFamily": {
+      "sans": "Inter",
+      "mono": "JetBrains Mono"
+    },
+    "variants": {
+      "pageTitle": { "size": "1.5rem", "weight": 650, "lineHeight": 1.25, "element": "h1" },
+      "sectionTitle": { "size": "1rem", "weight": 620, "lineHeight": 1.35, "element": "h2" },
+      "metricLabel": { "size": "0.75rem", "weight": 600, "lineHeight": 1.4, "transform": "uppercase", "element": "span" },
+      "metricValue": { "size": "1.75rem", "weight": 640, "lineHeight": 1.15, "numerals": "tabular", "element": "p" },
+      "mono": { "size": "0.8125rem", "lineHeight": 1.5, "numerals": "tabular", "element": "code" },
+      "bodyStrong": { "size": "0.875rem", "weight": 620, "lineHeight": 1.5, "element": "strong" }
+    }
+  },
+  "shape": {
+    "borderRadius": 6
+  },
+  "spacing": {
+    "base": 8
+  },
+  "density": {
+    "table": "small",
+    "textField": "small",
+    "chip": "small"
+  },
+  "rules": [
+    "Colour hexes exist only in app/theme/colors.js.",
+    "Status is conveyed by icon plus label, never colour alone (NFR-12, DC-11).",
+    "Status chips are theme variants selected by the variant prop, never sx maps.",
+    "Every focusable element keeps a visible 2px focus ring.",
+    "Figures use tabular numerals so columns align.",
+    "Contrast pairs are asserted at WCAG 2.1 AA in app/__tests__/theme.test.js."
+  ]
+}

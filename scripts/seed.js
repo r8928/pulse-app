@@ -1,0 +1,433 @@
+import {
+  ALL_PERMISSIONS,
+  EMPLOYMENT_TYPE_SEEDS,
+  HOLIDAY_TYPE,
+  PERMISSIONS,
+  ROLES,
+  SCOPES,
+} from '../constants/index.js';
+import {
+  COLLECTIONS,
+  ensureIndexes,
+  getPermissionGrants,
+  upsertSeed,
+  upsertSeedUser,
+} from '../database.js';
+
+/**
+ * Seeds the configuration section 3.10 specifies, plus a demo roster.
+ *
+ * Every number here is a seed, not a constant: FR-6.4 makes all of it editable
+ * at runtime with no redeploy, and OFFICE_ADMIN changes any of it per team.
+ *
+ * Idempotent (NFR-15). Running it twice changes nothing.
+ *
+ * Requires SEED_ADMIN_EMAIL — the work email of the first OFFICE_ADMIN, who
+ * must be able to sign in. The authorised Workspace domain is taken from it
+ * rather than guessed, because DC-6 forbids defaulting a value like this and a
+ * wrong domain locks everyone out.
+ */
+
+const adminEmail = process.env.SEED_ADMIN_EMAIL;
+
+if (!adminEmail?.includes('@')) {
+  console.error(
+    'SEED_ADMIN_EMAIL is not set to a work email address.\n\n' +
+      'It is the Google account of the first OFFICE_ADMIN, and its domain\n' +
+      'becomes the authorised Workspace domain for sign in. Add it to\n' +
+      '.env.local, for example:\n\n' +
+      '  SEED_ADMIN_EMAIL=you@yourcompany.com\n',
+  );
+  process.exit(1);
+}
+
+const workspaceDomain = adminEmail.split('@').at(-1).toLowerCase();
+
+/**
+ * FR-1.3: OFFICE_ADMIN holds every permission the system defines at ALL, and
+ * its set is a permanent superset. Generated from the catalog rather than
+ * listed, so a permission added later is granted automatically.
+ */
+const officeAdminGrants = ALL_PERMISSIONS.map((permission) => ({
+  role: ROLES.OFFICE_ADMIN,
+  permission,
+  scope: SCOPES.ALL,
+}));
+
+/** FR-2.1: the user lifecycle only. That is the whole of IT's authority. */
+const itGrants = [
+  PERMISSIONS.USER_READ,
+  PERMISSIONS.USER_WRITE,
+  PERMISSIONS.USER_IMPORT,
+].map((permission) => ({ role: ROLES.IT, permission, scope: SCOPES.ALL }));
+
+/**
+ * FR-6.7: the MANAGER leave-approval permission and its TEAM scope are seeded
+ * in Phase 1 and visible on S-19 from day one, even though the request and
+ * approval workflow ships in Phase 2.
+ */
+const managerGrants = [
+  { permission: PERMISSIONS.USER_READ, scope: SCOPES.ALL },
+  { permission: PERMISSIONS.ATTENDANCE_READ, scope: SCOPES.ALL },
+  { permission: PERMISSIONS.LEAVE_READ, scope: SCOPES.ALL },
+  { permission: PERMISSIONS.PTO_READ, scope: SCOPES.ALL },
+  { permission: PERMISSIONS.LEAVE_APPROVE, scope: SCOPES.TEAM },
+].map((grant) => ({ role: ROLES.MANAGER, ...grant }));
+
+/**
+ * FR-8.1: EMPLOYEE reads attendance company-wide, as everyone could in the old
+ * workbook — expressed as a grant at ALL so it can be narrowed on S-19 with no
+ * code change, which is MVP criterion 4.
+ *
+ * FR-8.2: read only without exception. No write, import, approve, report.build
+ * or exceptions.read appears here.
+ */
+const employeeGrants = [
+  PERMISSIONS.USER_READ,
+  PERMISSIONS.ATTENDANCE_READ,
+  PERMISSIONS.LEAVE_READ,
+  PERMISSIONS.PTO_READ,
+].map((permission) => ({
+  role: ROLES.EMPLOYEE,
+  permission,
+  scope: SCOPES.ALL,
+}));
+
+/**
+ * BR-9 seed profile B, as implemented in the old workbook and converted to
+ * percentages. Absolute hour bands only made sense for a 9 hour day and broke
+ * silently for any other shift length.
+ */
+const leaveDeductionLadder = [
+  {
+    latenessFrom: 10,
+    latenessTo: 40,
+    clockedFrom: 55,
+    clockedTo: 80,
+    deduction: 0.25,
+  },
+  {
+    latenessFrom: 40,
+    latenessTo: 55,
+    clockedFrom: 33,
+    clockedTo: 55,
+    deduction: 0.5,
+  },
+  {
+    latenessFrom: 55,
+    latenessTo: null,
+    clockedFrom: 0,
+    clockedTo: 33,
+    deduction: 0.75,
+  },
+  {
+    latenessFrom: null,
+    latenessTo: null,
+    clockedFrom: 0,
+    clockedTo: 0,
+    deduction: 1,
+  },
+];
+
+/** BR-18 to BR-21. The ladder decides what is proposed, never what may be approved. */
+const ptoAwardLadder = [
+  { rule: 'BR-18', description: 'Half an extra working day', award: 0.5 },
+  { rule: 'BR-19', description: 'One full extra working day', award: 1 },
+  {
+    rule: 'BR-20',
+    description: 'A full night worked, then the next working day',
+    award: 2,
+  },
+];
+
+/** BR-22 to BR-25. Applying CTO spends PTO; BR-26 blocks it when there is not enough. */
+const ctoApplicationLadder = [
+  { rule: 'BR-22', latenessFrom: 22, latenessTo: 44, apply: 0.25 },
+  { rule: 'BR-23', latenessFrom: 44, latenessTo: 67, apply: 0.5 },
+  { rule: 'BR-24', latenessFrom: 67, latenessTo: null, apply: 0.75 },
+  {
+    rule: 'BR-25',
+    latenessFrom: null,
+    latenessTo: null,
+    apply: 1,
+    didNotAttend: true,
+  },
+];
+
+const basePolicy = {
+  // BR-12: 30 typed days, credited at the start of the leave year.
+  leaveTypes: [
+    { name: 'Annual', annualEntitlement: 10 },
+    { name: 'Sick', annualEntitlement: 10 },
+    { name: 'Casual', annualEntitlement: 10 },
+    // FR-6.9: separate typed entries that never consume the standard balance.
+    { name: 'Paternity', annualEntitlement: 0, consumesStandardBalance: false },
+    { name: 'Maternity', annualEntitlement: 0, consumesStandardBalance: false },
+  ],
+  // BR-13, seeded as the leave year.
+  accrualPeriod: 'LEAVE_YEAR',
+  carryForward: true,
+  // FR-6.3 and BR-26: the single type automatic deductions post to.
+  automaticDeductionLeaveType: 'Casual',
+  leaveDeductionLadder,
+  ptoAwardLadder,
+  ptoValidityDays: 30, // FR-7.3
+  ctoApplicationLadder,
+  wfhQuotaDaysPerMonth: 5, // BR-16
+  shortDayThresholdPercent: 89, // BR-5
+  holidayWorkThresholdPercent: 22, // BR-27
+  midnightCrossingWindowHours: 8, // FR-5.8
+  duplicatePunchWindowMinutes: 5, // FR-4.7
+};
+
+const teams = [
+  { key: 'GENERAL', name: 'General', defaultShiftKey: 'DAY_0900' },
+  {
+    key: 'PRODUCT_OWNERS',
+    name: 'Product Owners',
+    defaultShiftKey: 'DAY_1000',
+  },
+  // BR-3: night support.
+  { key: 'GC', name: 'GC', defaultShiftKey: 'NIGHT_GC' },
+  // BR-4: night shift on the United States Pacific timezone.
+  {
+    key: 'SALES_MARKETING',
+    name: 'Sales and Marketing',
+    defaultShiftKey: 'NIGHT_PACIFIC',
+  },
+];
+
+/**
+ * FR-3.10 and DC-5: there is no company-wide default timezone. Every shift
+ * carries its own, and every timestamp resolves through the shift that applies
+ * to that user on that date.
+ *
+ * BR-4 fixes Sales and Marketing on US Pacific. The spec does not state the
+ * local teams' zone, so Asia/Karachi is a seed to confirm at team setup under
+ * FR-3.13 — not a value the system inferred.
+ */
+const shifts = [
+  {
+    key: 'DAY_0900',
+    name: 'Day 09:00 to 18:00',
+    startTime: '09:00',
+    endTime: '18:00',
+    requiredDailyMinutes: 540, // BR-1
+    graceMinutes: 30, // BR-7
+    timezone: 'Asia/Karachi',
+  },
+  {
+    key: 'DAY_1000',
+    name: 'Day 10:00 to 19:00',
+    startTime: '10:00',
+    endTime: '19:00',
+    requiredDailyMinutes: 540,
+    graceMinutes: 30,
+    timezone: 'Asia/Karachi',
+  },
+  {
+    key: 'NIGHT_GC',
+    name: 'GC night 19:00 to 04:00',
+    startTime: '19:00',
+    endTime: '04:00',
+    requiredDailyMinutes: 540,
+    graceMinutes: 30,
+    timezone: 'Asia/Karachi',
+    crossesMidnight: true,
+  },
+  {
+    key: 'NIGHT_PACIFIC',
+    name: 'Sales and Marketing night, US Pacific',
+    startTime: '19:00',
+    endTime: '04:00',
+    requiredDailyMinutes: 540,
+    graceMinutes: 30,
+    timezone: 'America/Los_Angeles',
+    crossesMidnight: true,
+  },
+];
+
+/**
+ * FR-3.7 and BR-15: each team keeps its own calendar, so two teams observe
+ * different holidays on the same date. Seeded differently on purpose — MVP
+ * criterion 13 requires two teams to produce different working-day counts.
+ */
+const holidays = [
+  {
+    teamKey: 'GENERAL',
+    date: '2026-03-23',
+    name: 'Public holiday',
+    type: HOLIDAY_TYPE.PUBLIC,
+  },
+  {
+    teamKey: 'GENERAL',
+    date: '2026-12-25',
+    name: 'Company holiday',
+    type: HOLIDAY_TYPE.COMPANY,
+  },
+  {
+    teamKey: 'GC',
+    date: '2026-03-23',
+    name: 'Public holiday',
+    type: HOLIDAY_TYPE.PUBLIC,
+  },
+  {
+    teamKey: 'SALES_MARKETING',
+    date: '2026-07-04',
+    name: 'Public holiday',
+    type: HOLIDAY_TYPE.PUBLIC,
+  },
+  {
+    teamKey: 'SALES_MARKETING',
+    date: '2026-11-26',
+    name: 'Public holiday',
+    type: HOLIDAY_TYPE.PUBLIC,
+  },
+];
+
+/** FR-3.8: not assumed to be Saturday and Sunday. Set per team. */
+const weeklyOffPatterns = teams.map((team) => ({
+  teamKey: team.key,
+  daysOfWeek: team.key === 'SALES_MARKETING' ? [0, 6] : [6, 0],
+}));
+
+const demoUsers = [
+  {
+    fullName: 'Office Administrator',
+    employeeCode: 'ADM-001',
+    workEmail: adminEmail,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
+    role: ROLES.OFFICE_ADMIN,
+    teamKey: 'GENERAL',
+    tracked: true,
+    loginEnabled: true,
+    dateOfJoining: '2024-01-01',
+  },
+  {
+    fullName: 'Ivy Tanaka',
+    employeeCode: 'IT-001',
+    workEmail: `it.demo@${workspaceDomain}`,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
+    role: ROLES.IT,
+    teamKey: 'GENERAL',
+    tracked: true,
+    loginEnabled: true,
+    dateOfJoining: '2024-03-11',
+  },
+  {
+    fullName: 'Marcus Adeyemi',
+    employeeCode: 'GC-001',
+    workEmail: `gc.manager.demo@${workspaceDomain}`,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
+    role: ROLES.MANAGER,
+    teamKey: 'GC',
+    tracked: true,
+    loginEnabled: true,
+    dateOfJoining: '2023-06-01',
+  },
+  {
+    fullName: 'Priya Raman',
+    employeeCode: 'SM-001',
+    workEmail: `sm.demo@${workspaceDomain}`,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
+    role: ROLES.EMPLOYEE,
+    teamKey: 'SALES_MARKETING',
+    tracked: true,
+    loginEnabled: true,
+    dateOfJoining: '2025-02-17',
+  },
+  {
+    fullName: 'Tom Okafor',
+    employeeCode: 'PO-001',
+    workEmail: `po.demo@${workspaceDomain}`,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.CONTRACT,
+    role: ROLES.EMPLOYEE,
+    teamKey: 'PRODUCT_OWNERS',
+    tracked: true,
+    loginEnabled: true,
+    dateOfJoining: '2025-09-01',
+  },
+  {
+    // FR-1.5 and FR-2.10: support staff hold no work email and never sign in,
+    // but are still tracked for attendance. Both flags exercised together.
+    fullName: 'Rosa Delgado',
+    employeeCode: 'SUP-001',
+    workEmail: null,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.SUPPORT_STAFF,
+    role: ROLES.EMPLOYEE,
+    teamKey: 'GENERAL',
+    tracked: true,
+    loginEnabled: false,
+    dateOfJoining: '2022-04-04',
+  },
+  {
+    // FR-2.10: a record for administration only. No day records, no shift
+    // required, no exception, no deduction.
+    fullName: 'Consultant Placeholder',
+    employeeCode: 'INT-001',
+    workEmail: null,
+    employmentType: EMPLOYMENT_TYPE_SEEDS.INTERN,
+    role: ROLES.EMPLOYEE,
+    teamKey: 'GENERAL',
+    tracked: false,
+    loginEnabled: false,
+    dateOfJoining: '2026-06-01',
+  },
+];
+
+async function seed() {
+  console.warn('Ensuring indexes...');
+  await ensureIndexes();
+
+  console.warn(`Authorising sign-in domain: ${workspaceDomain}`);
+  await upsertSeed(
+    COLLECTIONS.AUTHORISED_DOMAINS,
+    [{ domain: workspaceDomain }],
+    ['domain'],
+  );
+
+  console.warn('Seeding permission grants...');
+  await upsertSeed(
+    COLLECTIONS.PERMISSION_GRANTS,
+    [...officeAdminGrants, ...itGrants, ...managerGrants, ...employeeGrants],
+    ['role', 'permission'],
+  );
+
+  console.warn('Seeding employment types...');
+  await upsertSeed(
+    COLLECTIONS.EMPLOYMENT_TYPES,
+    Object.values(EMPLOYMENT_TYPE_SEEDS).map((name) => ({ name })),
+    ['name'],
+  );
+
+  console.warn('Seeding teams, shifts, calendars and policy...');
+  await upsertSeed(COLLECTIONS.TEAMS, teams, ['key']);
+  await upsertSeed(COLLECTIONS.SHIFTS, shifts, ['key']);
+  await upsertSeed(COLLECTIONS.HOLIDAYS, holidays, ['teamKey', 'date']);
+  await upsertSeed(COLLECTIONS.WEEKLY_OFF_PATTERNS, weeklyOffPatterns, [
+    'teamKey',
+  ]);
+  await upsertSeed(
+    COLLECTIONS.TEAM_POLICY,
+    teams.map((team) => ({ teamKey: team.key, ...basePolicy })),
+    ['teamKey'],
+  );
+
+  console.warn('Seeding demo users...');
+  for (const user of demoUsers) {
+    await upsertSeedUser(user);
+  }
+
+  const grants = await getPermissionGrants();
+  console.warn(
+    `\nDone. ${grants.length} permission grants, ${teams.length} teams, ${shifts.length} shifts, ${demoUsers.length} users.`,
+  );
+  console.warn(`Sign in as ${adminEmail} to reach every screen.`);
+
+  process.exit(0);
+}
+
+seed().catch((error) => {
+  console.error('Seed failed:', error);
+  process.exit(1);
+});
