@@ -2,9 +2,13 @@ import { createTheme } from '@mui/material/styles';
 import { colors, STATUS_KEYS } from './colors.js';
 
 /**
- * The Pulse theme. Radii, shadows, spacing and typography metrics live here;
- * hexes live in `colors.js`. Components must not set fontSize, fontWeight or
- * fontFamily themselves — they select a variant defined below.
+ * The Pulse theme. Radii, spacing and typography metrics live here; hexes live
+ * in `colors.js`. Components must not set fontSize, fontWeight or fontFamily
+ * themselves — they select a variant defined below.
+ *
+ * There is deliberately no shadow scale. Pulse is flat: surfaces are separated
+ * by a 1px border and the recessed `surfaceMuted` tone, never by elevation.
+ * See `DESIGN.md` § Elevation & Depth.
  *
  * Font families resolve through CSS custom properties set by `fonts.js` on the
  * root layout. Keeping the reference indirect means this module imports no

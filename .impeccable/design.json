@@ -1,65 +1,249 @@
 {
-  "name": "Pulse",
-  "direction": "dense data-first admin",
-  "source": "app/theme/colors.js and app/theme/theme.js are authoritative; this file mirrors them",
-  "color": {
-    "structure": {
-      "background": "#f7f8fa",
-      "surface": "#ffffff",
-      "surfaceMuted": "#f1f3f6",
-      "border": "#dfe3e8",
-      "borderStrong": "#c3cad3"
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-12T00:00:00.000Z",
+  "title": "Design System: Pulse",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(97.9% 0.003 264.5)",
+        "tonalRamp": ["oklch(15.0% 0.003 264.5)", "oklch(26.4% 0.003 264.5)", "oklch(37.9% 0.003 264.5)", "oklch(49.3% 0.003 264.5)", "oklch(60.7% 0.003 264.5)", "oklch(72.1% 0.003 264.5)", "oklch(83.6% 0.003 264.5)", "oklch(95.0% 0.003 264.5)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Card",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": ["oklch(15.0% 0.000 89.9)", "oklch(26.4% 0.000 89.9)", "oklch(37.9% 0.000 89.9)", "oklch(49.3% 0.000 89.9)", "oklch(60.7% 0.000 89.9)", "oklch(72.1% 0.000 89.9)", "oklch(83.6% 0.000 89.9)", "oklch(95.0% 0.000 89.9)"]
+      },
+      "surface-muted": {
+        "role": "neutral",
+        "displayName": "Muted Card",
+        "canonical": "oklch(96.3% 0.005 258.3)",
+        "tonalRamp": ["oklch(15.0% 0.005 258.3)", "oklch(26.4% 0.005 258.3)", "oklch(37.9% 0.005 258.3)", "oklch(49.3% 0.005 258.3)", "oklch(60.7% 0.005 258.3)", "oklch(72.1% 0.005 258.3)", "oklch(83.6% 0.005 258.3)", "oklch(95.0% 0.005 258.3)"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "oklch(91.4% 0.008 253.9)",
+        "tonalRamp": ["oklch(15.0% 0.008 253.9)", "oklch(26.4% 0.008 253.9)", "oklch(37.9% 0.008 253.9)", "oklch(49.3% 0.008 253.9)", "oklch(60.7% 0.008 253.9)", "oklch(72.1% 0.008 253.9)", "oklch(83.6% 0.008 253.9)", "oklch(95.0% 0.008 253.9)"]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Rule Strong",
+        "canonical": "oklch(83.6% 0.015 254.6)",
+        "tonalRamp": ["oklch(15.0% 0.015 254.6)", "oklch(26.4% 0.015 254.6)", "oklch(37.9% 0.015 254.6)", "oklch(49.3% 0.015 254.6)", "oklch(60.7% 0.015 254.6)", "oklch(72.1% 0.015 254.6)", "oklch(83.6% 0.015 254.6)", "oklch(95.0% 0.015 254.6)"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(23.7% 0.015 256.8)",
+        "tonalRamp": ["oklch(15.0% 0.015 256.8)", "oklch(26.4% 0.015 256.8)", "oklch(37.9% 0.015 256.8)", "oklch(49.3% 0.015 256.8)", "oklch(60.7% 0.015 256.8)", "oklch(72.1% 0.015 256.8)", "oklch(83.6% 0.015 256.8)", "oklch(95.0% 0.015 256.8)"]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "canonical": "oklch(50.0% 0.026 256.8)",
+        "tonalRamp": ["oklch(15.0% 0.026 256.8)", "oklch(26.4% 0.026 256.8)", "oklch(37.9% 0.026 256.8)", "oklch(49.3% 0.026 256.8)", "oklch(60.7% 0.026 256.8)", "oklch(72.1% 0.026 256.8)", "oklch(83.6% 0.026 256.8)", "oklch(95.0% 0.026 256.8)"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Ledger Blue",
+        "canonical": "oklch(49.2% 0.154 262.8)",
+        "tonalRamp": ["oklch(15.0% 0.154 262.8)", "oklch(26.4% 0.154 262.8)", "oklch(37.9% 0.154 262.8)", "oklch(49.3% 0.154 262.8)", "oklch(60.7% 0.154 262.8)", "oklch(72.1% 0.154 262.8)", "oklch(83.6% 0.154 262.8)", "oklch(95.0% 0.154 262.8)"]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Ledger Blue Deep",
+        "canonical": "oklch(42.9% 0.136 263.0)",
+        "tonalRamp": ["oklch(15.0% 0.136 263.0)", "oklch(26.4% 0.136 263.0)", "oklch(37.9% 0.136 263.0)", "oklch(49.3% 0.136 263.0)", "oklch(60.7% 0.136 263.0)", "oklch(72.1% 0.136 263.0)", "oklch(83.6% 0.136 263.0)", "oklch(95.0% 0.136 263.0)"]
+      },
+      "accent-surface": {
+        "role": "primary",
+        "displayName": "Ledger Blue Wash",
+        "canonical": "oklch(95.4% 0.016 262.8)",
+        "tonalRamp": ["oklch(15.0% 0.016 262.8)", "oklch(26.4% 0.016 262.8)", "oklch(37.9% 0.016 262.8)", "oklch(49.3% 0.016 262.8)", "oklch(60.7% 0.016 262.8)", "oklch(72.1% 0.016 262.8)", "oklch(83.6% 0.016 262.8)", "oklch(95.0% 0.016 262.8)"]
+      },
+      "focus-ring": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "oklch(50.5% 0.212 262.9)",
+        "tonalRamp": ["oklch(15.0% 0.212 262.9)", "oklch(26.4% 0.212 262.9)", "oklch(37.9% 0.212 262.9)", "oklch(49.3% 0.212 262.9)", "oklch(60.7% 0.212 262.9)", "oklch(72.1% 0.212 262.9)", "oklch(83.6% 0.212 262.9)", "oklch(95.0% 0.212 262.9)"]
+      },
+      "success-text": {
+        "role": "tertiary",
+        "displayName": "Success Ink",
+        "canonical": "oklch(42.5% 0.116 144.3)",
+        "tonalRamp": ["oklch(15.0% 0.116 144.3)", "oklch(26.4% 0.116 144.3)", "oklch(37.9% 0.116 144.3)", "oklch(49.3% 0.116 144.3)", "oklch(60.7% 0.116 144.3)", "oklch(72.1% 0.116 144.3)", "oklch(83.6% 0.116 144.3)", "oklch(95.0% 0.116 144.3)"]
+      },
+      "warning-text": {
+        "role": "tertiary",
+        "displayName": "Warning Ink",
+        "canonical": "oklch(46.5% 0.098 73.1)",
+        "tonalRamp": ["oklch(15.0% 0.098 73.1)", "oklch(26.4% 0.098 73.1)", "oklch(37.9% 0.098 73.1)", "oklch(49.3% 0.098 73.1)", "oklch(60.7% 0.098 73.1)", "oklch(72.1% 0.098 73.1)", "oklch(83.6% 0.098 73.1)", "oklch(95.0% 0.098 73.1)"]
+      },
+      "danger-text": {
+        "role": "tertiary",
+        "displayName": "Danger Ink",
+        "canonical": "oklch(42.0% 0.147 28.1)",
+        "tonalRamp": ["oklch(15.0% 0.147 28.1)", "oklch(26.4% 0.147 28.1)", "oklch(37.9% 0.147 28.1)", "oklch(49.3% 0.147 28.1)", "oklch(60.7% 0.147 28.1)", "oklch(72.1% 0.147 28.1)", "oklch(83.6% 0.147 28.1)", "oklch(95.0% 0.147 28.1)"]
+      },
+      "info-text": {
+        "role": "tertiary",
+        "displayName": "Info Ink",
+        "canonical": "oklch(40.3% 0.079 233.2)",
+        "tonalRamp": ["oklch(15.0% 0.079 233.2)", "oklch(26.4% 0.079 233.2)", "oklch(37.9% 0.079 233.2)", "oklch(49.3% 0.079 233.2)", "oklch(60.7% 0.079 233.2)", "oklch(72.1% 0.079 233.2)", "oklch(83.6% 0.079 233.2)", "oklch(95.0% 0.079 233.2)"]
+      },
+      "neutral-text": {
+        "role": "tertiary",
+        "displayName": "Neutral Ink",
+        "canonical": "oklch(39.5% 0.016 255.6)",
+        "tonalRamp": ["oklch(15.0% 0.016 255.6)", "oklch(26.4% 0.016 255.6)", "oklch(37.9% 0.016 255.6)", "oklch(49.3% 0.016 255.6)", "oklch(60.7% 0.016 255.6)", "oklch(72.1% 0.016 255.6)", "oklch(83.6% 0.016 255.6)", "oklch(95.0% 0.016 255.6)"]
+      }
     },
-    "text": {
-      "primary": "#1a1f26",
-      "secondary": "#5a6472",
-      "onAccent": "#ffffff"
+    "typographyMeta": {
+      "page-title": { "displayName": "Page Title", "purpose": "The screen name. One per screen. Renders as h1." },
+      "section-title": { "displayName": "Section Title", "purpose": "A panel or card heading, and the app name in the AppBar. Renders as h2." },
+      "metric-label": { "displayName": "Metric Label", "purpose": "Uppercase caption above a figure or a chip group. Renders as span." },
+      "metric-value": { "displayName": "Metric Value", "purpose": "The figure itself, in tabular numerals. The largest type in the system. Renders as p." },
+      "mono": { "displayName": "Mono", "purpose": "Employee codes, dates, durations and balances, so columns align. Renders as code." },
+      "body-strong": { "displayName": "Body Strong", "purpose": "An emphasised value inside running text. Renders as strong." }
     },
-    "action": {
-      "accent": "#2f5bb7",
-      "accentHover": "#254a99",
-      "accentSurface": "#eaf0fb",
-      "focusRing": "#1a56db"
+    "shadows": [],
+    "breakpoints": [
+      { "name": "xs", "value": "0px" },
+      { "name": "sm", "value": "600px" },
+      { "name": "md", "value": "900px" },
+      { "name": "lg", "value": "1200px" },
+      { "name": "xl", "value": "1536px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one action a screen exists for. Never two on the same screen.",
+      "html": "<button class=\"ds-btn-primary\">New user</button>",
+      "css": ".ds-btn-primary { background: #2f5bb7; color: #ffffff; font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; text-transform: none; padding: 4px 10px; border: none; border-radius: 6px; box-shadow: none; cursor: pointer; transition: background 0.2s; } .ds-btn-primary:hover { background: #254a99; } .ds-btn-primary:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; border-radius: 3px; }"
     },
-    "status": {
-      "success": { "text": "#1b5e20", "surface": "#e8f5e9", "border": "#a5d6a7" },
-      "warning": { "text": "#7a4f01", "surface": "#fff4e5", "border": "#ffcc80" },
-      "danger": { "text": "#8c1d18", "surface": "#fdecea", "border": "#ef9a9a" },
-      "info": { "text": "#0b4f6c", "surface": "#e5f3f9", "border": "#90caf9" },
-      "neutral": { "text": "#41474f", "surface": "#eef0f3", "border": "#cdd2d9" }
+    {
+      "name": "Outlined Button",
+      "kind": "button",
+      "refersTo": "button-outlined",
+      "description": "Secondary actions such as Sign out.",
+      "html": "<button class=\"ds-btn-outlined\">Sign out</button>",
+      "css": ".ds-btn-outlined { background: #ffffff; color: #2f5bb7; font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; text-transform: none; padding: 3px 9px; border: 1px solid rgba(47, 91, 183, 0.5); border-radius: 6px; cursor: pointer; transition: background 0.2s, border-color 0.2s; } .ds-btn-outlined:hover { background: #eaf0fb; border-color: #2f5bb7; } .ds-btn-outlined:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; border-radius: 3px; }"
+    },
+    {
+      "name": "Status Chip — Success",
+      "kind": "chip",
+      "refersTo": "chip-status-success",
+      "description": "Status never travels by colour alone: the icon and the word are both required.",
+      "html": "<span class=\"ds-chip-success\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 2a10 10 0 100 20 10 10 0 000-20zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z\"/></svg>Active</span>",
+      "css": ".ds-chip-success { --status-icon-gap: 6px; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; font-family: Inter, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; color: #1b5e20; background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 6px; } .ds-chip-success svg { margin-inline-end: var(--status-icon-gap); color: inherit; }"
+    },
+    {
+      "name": "Status Chip — Warning",
+      "kind": "chip",
+      "refersTo": "chip-status-warning",
+      "description": "Needs attention, not yet wrong. FR-2.10 marks an untracked user wherever they appear.",
+      "html": "<span class=\"ds-chip-warning\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 2a10 10 0 100 20 10 10 0 000-20zM7 11h10v2H7v-2z\"/></svg>Not tracked</span>",
+      "css": ".ds-chip-warning { --status-icon-gap: 6px; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; font-family: Inter, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; color: #7a4f01; background: #fff4e5; border: 1px solid #ffcc80; border-radius: 6px; } .ds-chip-warning svg { margin-inline-end: var(--status-icon-gap); color: inherit; }"
+    },
+    {
+      "name": "Status Chip — Neutral",
+      "kind": "chip",
+      "refersTo": "chip-status-neutral",
+      "description": "No longer active, login disabled, no work email. A soft-deleted user stays listed and is marked.",
+      "html": "<span class=\"ds-chip-neutral\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 2a10 10 0 100 20 10 10 0 000-20zM7 11h10v2H7v-2z\"/></svg>No longer active</span>",
+      "css": ".ds-chip-neutral { --status-icon-gap: 6px; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; font-family: Inter, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; color: #41474f; background: #eef0f3; border: 1px solid #cdd2d9; border-radius: 6px; } .ds-chip-neutral svg { margin-inline-end: var(--status-icon-gap); color: inherit; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "surface-card",
+      "description": "Outlined, small, always labelled. Helper text states the rule before the click.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Reason</span><input class=\"ds-field-input\" type=\"text\" placeholder=\"Corrected after payroll query\" /><span class=\"ds-field-help\">Recorded in the audit log with your name and the time. Required.</span></label>",
+      "css": ".ds-field { display: inline-flex; flex-direction: column; gap: 4px; font-family: Inter, system-ui, sans-serif; } .ds-field-label { font-size: 0.75rem; font-weight: 600; color: #5a6472; } .ds-field-input { font-family: inherit; font-size: 0.875rem; color: #1a1f26; background: #ffffff; padding: 8px 12px; border: 1px solid #c3cad3; border-radius: 6px; } .ds-field-input:hover { border-color: #1a1f26; } .ds-field-input:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; border-radius: 3px; } .ds-field-help { font-size: 0.75rem; color: #5a6472; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "surface-card",
+      "description": "Drawer row at 232px. The current item is marked by tint and by aria-current, never by tint alone.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-item--selected\" href=\"#\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z\"/></svg>Dashboard</a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z\"/></svg>People</a></nav>",
+      "css": ".ds-nav { width: 232px; background: #ffffff; border-right: 1px solid #dfe3e8; padding: 8px 0; } .ds-nav-item { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; color: #1a1f26; text-decoration: none; } .ds-nav-item svg { width: 20px; color: #5a6472; } .ds-nav-item:hover { background: #f1f3f6; } .ds-nav-item--selected { background: #eaf0fb; color: #2f5bb7; font-weight: 600; } .ds-nav-item--selected svg { color: #2f5bb7; } .ds-nav-item:focus-visible { outline: 2px solid #1a56db; outline-offset: -2px; border-radius: 3px; }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "card",
+      "refersTo": "surface-card",
+      "description": "Outlined Paper wrapping a dense table. Codes and dates in mono so the column aligns; an absent value is an em dash, never blank.",
+      "html": "<div class=\"ds-table-wrap\"><table class=\"ds-table\"><thead><tr><th>Name</th><th>Employee code</th><th>Date of joining</th><th>Date of leaving</th></tr></thead><tbody><tr><td><a href=\"#\">Ayesha Khan</a></td><td><code>CB-0142</code></td><td><code>2024-03-11</code></td><td><code>—</code></td></tr><tr><td><a href=\"#\">Bilal Ahmed</a></td><td><code>CB-0143</code></td><td><code>2023-09-02</code></td><td><code>2026-01-30</code></td></tr></tbody></table></div>",
+      "css": ".ds-table-wrap { background: #ffffff; border: 1px solid #dfe3e8; border-radius: 6px; overflow: hidden; } .ds-table { width: 100%; border-collapse: collapse; font-family: Inter, system-ui, sans-serif; font-size: 0.875rem; color: #1a1f26; } .ds-table th { text-align: left; font-weight: 600; color: #5a6472; background: #f1f3f6; padding: 6px 16px; border-bottom: 1px solid #dfe3e8; } .ds-table td { padding: 6px 16px; border-bottom: 1px solid #dfe3e8; } .ds-table tbody tr:last-child td { border-bottom: none; } .ds-table tbody tr:hover { background: #f7f8fa; } .ds-table code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.8125rem; font-variant-numeric: tabular-nums lining-nums; } .ds-table a { color: #2f5bb7; }"
+    },
+    {
+      "name": "Empty State",
+      "kind": "custom",
+      "refersTo": "surface-card",
+      "description": "Says why it is empty and what to do. A blank table is indistinguishable from a broken one.",
+      "html": "<div class=\"ds-empty\"><svg viewBox=\"0 0 24 24\" width=\"32\" height=\"32\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M20 6h-8l-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2z\"/></svg><h2>Nothing outstanding</h2><p>No exceptions are waiting on you for this period. New ones appear here as soon as a day is classified.</p></div>",
+      "css": ".ds-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; padding: 48px; background: #ffffff; border: 1px solid #dfe3e8; border-radius: 6px; font-family: Inter, system-ui, sans-serif; } .ds-empty svg { color: #5a6472; } .ds-empty h2 { margin: 0; font-size: 1rem; font-weight: 620; line-height: 1.35; color: #1a1f26; } .ds-empty p { margin: 0; max-width: 460px; font-size: 0.875rem; line-height: 1.5; color: #5a6472; }"
+    },
+    {
+      "name": "Metric Tile",
+      "kind": "card",
+      "refersTo": "surface-card",
+      "description": "The dashboard figure. metricValue is larger than pageTitle on purpose — the data is the content.",
+      "html": "<div class=\"ds-tile\"><span class=\"ds-tile-label\">Open exceptions</span><p class=\"ds-tile-value\">1,248</p></div>",
+      "css": ".ds-tile { display: flex; flex-direction: column; gap: 8px; padding: 24px; background: #ffffff; border: 1px solid #dfe3e8; border-radius: 6px; font-family: Inter, system-ui, sans-serif; } .ds-tile-label { font-size: 0.75rem; font-weight: 600; line-height: 1.4; letter-spacing: 0.04em; text-transform: uppercase; color: #5a6472; } .ds-tile-value { margin: 0; font-size: 1.75rem; font-weight: 640; line-height: 1.15; color: #1a1f26; font-variant-numeric: tabular-nums lining-nums; }"
     }
-  },
-  "typography": {
-    "fontFamily": {
-      "sans": "Inter",
-      "mono": "JetBrains Mono"
-    },
-    "variants": {
-      "pageTitle": { "size": "1.5rem", "weight": 650, "lineHeight": 1.25, "element": "h1" },
-      "sectionTitle": { "size": "1rem", "weight": 620, "lineHeight": 1.35, "element": "h2" },
-      "metricLabel": { "size": "0.75rem", "weight": 600, "lineHeight": 1.4, "transform": "uppercase", "element": "span" },
-      "metricValue": { "size": "1.75rem", "weight": 640, "lineHeight": 1.15, "numerals": "tabular", "element": "p" },
-      "mono": { "size": "0.8125rem", "lineHeight": 1.5, "numerals": "tabular", "element": "code" },
-      "bodyStrong": { "size": "0.875rem", "weight": 620, "lineHeight": 1.5, "element": "strong" }
-    }
-  },
-  "shape": {
-    "borderRadius": 6
-  },
-  "spacing": {
-    "base": 8
-  },
-  "density": {
-    "table": "small",
-    "textField": "small",
-    "chip": "small"
-  },
-  "rules": [
-    "Colour hexes exist only in app/theme/colors.js.",
-    "Status is conveyed by icon plus label, never colour alone (NFR-12, DC-11).",
-    "Status chips are theme variants selected by the variant prop, never sx maps.",
-    "Every focusable element keeps a visible 2px focus ring.",
-    "Figures use tabular numerals so columns align.",
-    "Contrast pairs are asserted at WCAG 2.1 AA in app/__tests__/theme.test.js."
-  ]
+  ],
+  "narrative": {
+    "northStar": "The Legible Ledger",
+    "overview": "Pulse replaces a spreadsheet, and the people using it read it as a spreadsheet. S-10, S-14 and S-20 are mostly figures. So it should feel like a well-kept ledger rather than a product page: dense rows, figures aligned down the column, and nothing decorative competing with the numbers for attention.\n\nThe interface stays near-neutral and quiet. One accent hue carries action, and colour is otherwise held in reserve for status — where it has to mean something specific, and where spending it elsewhere would make it mean less. Headings are deliberately undersized relative to the data, because the numbers are the content and the chrome is not.\n\nDensity is a feature, not a compromise. An OFFICE_ADMIN correcting a day's attendance should reach it in three clicks (NFR-1), and every screen states what its numbers mean rather than assuming (NFR-2).",
+    "keyCharacteristics": [
+      "Near-neutral greys; a single restrained blue accent",
+      "Flat surfaces separated by 1px borders, never by shadow",
+      "Dense by default — small tables, small fields, small chips",
+      "Tabular figures so a column of durations or balances aligns on the decimal",
+      "Status always carries an icon and a word, never colour alone",
+      "A visible focus ring on everything focusable"
+    ],
+    "rules": [
+      { "name": "The Reserved Colour Rule", "body": "Colour is spent on status and on the one action accent. A screen that uses the accent decoratively has spent it, and the next genuinely urgent thing on that screen has nothing left to say it with.", "section": "colors" },
+      { "name": "The Never-Colour-Alone Rule", "body": "Every status chip renders an icon and a written label. Each statusX variant publishes a --status-icon-gap custom property that reserves the icon's space, so a chip built without an icon is visibly wrong rather than quietly inaccessible. (NFR-12, DC-11)", "section": "colors" },
+      { "name": "The One-File Rule", "body": "Every hex in the application lives in app/theme/colors.js. A component that needs a colour selects a theme variant; it does not name a colour.", "section": "colors" },
+      { "name": "The Quiet Heading Rule", "body": "metricValue (1.75rem) is larger than pageTitle (1.5rem), and that inversion is deliberate. The data is the content. A heading that outweighs the number it introduces has the hierarchy backwards.", "section": "typography" },
+      { "name": "The Tabular Figure Rule", "body": "metricValue and mono set font-variant-numeric: tabular-nums lining-nums, so a column of durations or balances aligns on the decimal instead of shimmering row to row. Any new variant that can hold a number does the same.", "section": "typography" },
+      { "name": "The Variants-Only Rule", "body": "Never set fontSize, fontWeight or fontFamily outside the theme. If none of the six fits, add a seventh in app/theme/theme.js rather than styling in place.", "section": "typography" },
+      { "name": "The Real Element Rule", "body": "Every custom variant maps to a real element — h1, h2, code, strong — never a bare div, so the document outline stays meaningful to a screen reader.", "section": "typography" },
+      { "name": "The Native Spacing Rule", "body": "Use spacing / gap on Stack and spacing / rowSpacing / columnSpacing on Grid. A custom margin or padding value in sx means a step is missing from the scale, not that this case is special.", "section": "layout" },
+      { "name": "The Flat Surface Rule", "body": "A shadow is not how two things are separated in Pulse; a border is. If a surface needs to lift off the page, the answer is Paper variant='outlined' on Paper background, not a new shadow token.", "section": "elevation" },
+      { "name": "The Visible Focus Rule", "body": "Every :focus-visible element takes a 2px ring in Signal Blue at 2px offset, with a 3px radius. Removing it without replacing it with something equally visible is a defect, not a style choice. (NFR-12)", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put every hex in app/theme/colors.js and select it through a theme variant.",
+      "Do give every status an icon and a written label (NFR-12, DC-11).",
+      "Do use Paper variant='outlined' on Paper background to separate surfaces.",
+      "Do render figures in metricValue or mono so columns align on the decimal.",
+      "Do state the counting rule in PageHeader's description when a number could be read two ways (NFR-2).",
+      "Do reserve variant='contained' for the one primary action on a screen.",
+      "Do render an em dash for an absent table value.",
+      "Do page or virtualise any full-company view (NFR-3, DC-10).",
+      "Do keep Enter-submits and Esc-cancels working through a real <form>."
+    ],
+    "donts": [
+      "Don't add a shadow token. The system is flat; use a border.",
+      "Don't build a status style map in sx — select a statusX chip variant.",
+      "Don't set fontSize, fontWeight or fontFamily outside the theme.",
+      "Don't use a custom margin or padding value where the 8px scale has a step.",
+      "Don't remove the focus ring without replacing it with something equally visible.",
+      "Don't convey any state by colour alone — including a calendar, which shall never depend on formatting or colour to say what a day is (FR-3.7).",
+      "Don't use raw SVG or emoji as an icon, or import an @mui/icons-material name without verifying the export exists.",
+      "Don't render a blank grid where an EmptyState belongs.",
+      "Don't add a second radius. There is one, and it is 6px."
+    ]
+  }
 }
