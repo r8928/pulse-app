@@ -44,6 +44,42 @@ if (!adminEmail?.includes('@')) {
 const workspaceDomain = adminEmail.split('@').at(-1).toLowerCase();
 
 /**
+ * A public consumer domain is not a Workspace domain. Authorising one leaves
+ * the FR-1.5 domain gate excluding almost nobody, so the whole weight of
+ * access control falls on the user-record checks behind it.
+ *
+ * Allowed, because a personal Google account is the agreed starting point
+ * before the company GCP project exists — but said out loud, because it is
+ * not a state to deploy in.
+ */
+const CONSUMER_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'yahoo.com',
+  'icloud.com',
+  'proton.me',
+  'protonmail.com',
+]);
+
+const usingConsumerDomain = CONSUMER_DOMAINS.has(workspaceDomain);
+
+/**
+ * Demo users never get an address on the authorised domain.
+ *
+ * Deriving their emails from it looks tidy when that domain is a company one,
+ * and is actively dangerous when it is not: seeding `it.demo@gmail.com` hands
+ * the IT role to whoever happens to own that mailbox.
+ *
+ * `.invalid` is reserved by RFC 2606 and can never be registered, so no Google
+ * account can ever match these. They exist to populate the roster, not to be
+ * signed in as — which is why every one of them also has login disabled.
+ */
+const DEMO_EMAIL_DOMAIN = 'pulse.invalid';
+
+/**
  * FR-1.3: OFFICE_ADMIN holds every permission the system defines at ALL, and
  * its set is a permanent superset. Generated from the catalog rather than
  * listed, so a permission added later is granted automatically.
@@ -306,45 +342,47 @@ const demoUsers = [
   {
     fullName: 'Ivy Tanaka',
     employeeCode: 'IT-001',
-    workEmail: `it.demo@${workspaceDomain}`,
+    workEmail: `it.demo@${DEMO_EMAIL_DOMAIN}`,
     employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
     role: ROLES.IT,
     teamKey: 'GENERAL',
     tracked: true,
-    loginEnabled: true,
+    // Demo users never sign in. Their address is unregistrable, so no Google
+    // account can match it, and this closes the path a second way.
+    loginEnabled: false,
     dateOfJoining: '2024-03-11',
   },
   {
     fullName: 'Marcus Adeyemi',
     employeeCode: 'GC-001',
-    workEmail: `gc.manager.demo@${workspaceDomain}`,
+    workEmail: `gc.manager.demo@${DEMO_EMAIL_DOMAIN}`,
     employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
     role: ROLES.MANAGER,
     teamKey: 'GC',
     tracked: true,
-    loginEnabled: true,
+    loginEnabled: false,
     dateOfJoining: '2023-06-01',
   },
   {
     fullName: 'Priya Raman',
     employeeCode: 'SM-001',
-    workEmail: `sm.demo@${workspaceDomain}`,
+    workEmail: `sm.demo@${DEMO_EMAIL_DOMAIN}`,
     employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
     role: ROLES.EMPLOYEE,
     teamKey: 'SALES_MARKETING',
     tracked: true,
-    loginEnabled: true,
+    loginEnabled: false,
     dateOfJoining: '2025-02-17',
   },
   {
     fullName: 'Tom Okafor',
     employeeCode: 'PO-001',
-    workEmail: `po.demo@${workspaceDomain}`,
+    workEmail: `po.demo@${DEMO_EMAIL_DOMAIN}`,
     employmentType: EMPLOYMENT_TYPE_SEEDS.CONTRACT,
     role: ROLES.EMPLOYEE,
     teamKey: 'PRODUCT_OWNERS',
     tracked: true,
-    loginEnabled: true,
+    loginEnabled: false,
     dateOfJoining: '2025-09-01',
   },
   {
@@ -423,6 +461,21 @@ async function seed() {
     `\nDone. ${grants.length} permission grants, ${teams.length} teams, ${shifts.length} shifts, ${demoUsers.length} users.`,
   );
   console.warn(`Sign in as ${adminEmail} to reach every screen.`);
+  console.warn(
+    `Demo users are on @${DEMO_EMAIL_DOMAIN} with login disabled, so none of them can ever sign in.`,
+  );
+
+  if (usingConsumerDomain) {
+    console.warn(
+      `\n! ${workspaceDomain} is a public consumer domain, not a Google Workspace one.\n` +
+        '  The FR-1.5 domain gate therefore excludes almost nobody, and access\n' +
+        '  rests entirely on the user-record checks behind it. Fine for local\n' +
+        '  work on a personal GCP project; not a state to deploy in.\n' +
+        '  Re-seed with a company address once the company GCP project exists,\n' +
+        `  then remove ${workspaceDomain} from the authorisedDomains collection —\n` +
+        '  seeding only adds domains, it never removes one.',
+    );
+  }
 
   process.exit(0);
 }
