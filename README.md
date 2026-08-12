@@ -2,7 +2,7 @@
 
 Attendance, leave, PTO and CTO. Replaces the Excel workbook.
 
-Spec: [`spec.md`](spec.md) · Screens: [`list-of-screens.md`](list-of-screens.md) · Design: [`DESIGN.md`](DESIGN.md) · Rules: [`CLAUDE.md`](CLAUDE.md)
+What it must do: [`spec.md`](spec.md) · Where it surfaces: [`list-of-screens.md`](list-of-screens.md) · **How to build it: [`ARCHITECTURE.md`](ARCHITECTURE.md)** · How it looks: [`DESIGN.md`](DESIGN.md) · Coding rules: [`CLAUDE.md`](CLAUDE.md)
 
 **This README is the spec-first feature list. Update it before implementing a feature.**
 

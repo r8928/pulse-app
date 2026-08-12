@@ -13,6 +13,7 @@
 
 - DO NOT bloat README.md — every line must prevent a concrete mistake; cut anything that doesn't.
 - README.md is the spec-first feature list: update it before implementing a feature.
+- ARCHITECTURE.md is the implementation guide — read the relevant section before building a feature, and fix it in the same change when it disagrees with `spec.md` (which always wins).
 - The four design-token surfaces (`./theme/colors.js`, `./theme/theme.js`, `DESIGN.md` frontmatter/prose, `.impeccable/design.json`) must never drift — any change to one is reflected in all four in the same commit.
 
 ## Git and Commit Hygiene
