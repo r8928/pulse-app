@@ -461,9 +461,21 @@ The compositions every remaining screen assembles from the components above.
 - **Don't** render a blank grid where an `EmptyState` belongs.
 - **Don't** add a second radius. There is one, and it is 6px.
 
-### Known gap
+### Known gap · `P4`
 
 The shell has no mobile treatment: `AppShell` renders a `variant='permanent'`
 drawer at every width. Under the desktop → mobile → tablet priority this is
 correct for the primary case and outstanding for the second — a `temporary`
 drawer below `sm` is required work, not a design decision still open.
+
+**This is the only remaining work in this document, and it is Phase 4** (see
+`spec.md` §2.3 for the tags and `ARCHITECTURE.md` §32.1 for the map). It goes
+early because every screen built in Phases 4 to 6 inherits the shell: fixing it
+afterwards means re-checking twenty-one screens instead of zero.
+
+Everything else here — the palette, the type scale, the four token surfaces,
+the component variants and the screen archetypes — is delivered and carries no
+phase. `ARCHITECTURE.md`'s header says it plainly: **do not change this
+document while building.** A design-token edit that lands mid-phase breaks
+`app/__tests__/theme.test.js` and forces all four surfaces to move together
+(`CLAUDE.md`), which is not work any implementation phase should absorb.

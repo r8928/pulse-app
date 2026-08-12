@@ -5,6 +5,16 @@ Derived from `spec.md`. Every screen and popup here traces to at least one requi
 
 **Totals — 9 modules · 22 screens · 47 popups.** Post-MVP adds 3 screens and 2 popups.
 
+**By delivery phase** (`spec.md` §2.3), so the size of each phase is visible before it starts:
+
+| Phase | Screens | Popups |
+| ----- | ------- | ------ |
+| `✔` delivered | 4 | 5 |
+| `P4` basic | 7 | 25 |
+| `P5` intermediate | 6 | 8 |
+| `P6` complex | 5 | 9 |
+| `PM` post-MVP | 3 | 2 |
+
 ---
 
 ## 1. How to read this
@@ -18,6 +28,7 @@ Derived from `spec.md`. Every screen and popup here traces to at least one requi
 | **Access** | The permission and scope that reveal the screen — never a role name, because `FR-1.2` stores every grant as data that `OFFICE_ADMIN` edits at runtime on `S-19`. Role names appear only as *who holds this today*. |
 | **Spec** | The requirement IDs the entry satisfies. |
 | **States** | Empty, loading, and error behaviour, in one line. |
+| `✔` `P4` `P5` `P6` `PM` | Delivery phase, per `spec.md` §2.3. On a screen it follows the heading; on a popup it is the Phase column. A screen carries the phase in which it becomes *usable*, so a screen whose data source lands earlier still tags at the phase that builds the screen. |
 
 **On permission names.** `spec.md` never enumerates individual permissions — `FR-1.2` only requires that every
 permission and the scope each role holds it at is stored as data. Names like `attendance.read` below are
@@ -36,30 +47,34 @@ Three rules govern the whole inventory:
 ## 2. Navigation map
 
 ```
-/                          S-04  Home
-├── /exceptions            S-05  Exceptions dashboard          M-2
-├── /users                 S-06  User roster                   M-3
-│   ├── /users/[id]        S-07  User detail
-│   └── /users/import      S-08  Roster import
-├── /attendance            S-09  Attendance overview           M-4
-│   ├── /attendance/entry  S-10  Daily attendance grid
-│   ├── /attendance/import S-11  Attendance import
+/                          S-04  P6  Home
+├── /exceptions            S-05  P6  Exceptions dashboard      M-2
+├── /users                 S-06  ✔   User roster               M-3
+│   ├── /users/[id]        S-07  P4  User detail
+│   └── /users/import      S-08  P4  Roster import
+├── /attendance            S-09  P5  Attendance overview       M-4
+│   ├── /attendance/entry  S-10  P5  Daily attendance grid
+│   ├── /attendance/import S-11  P5  Attendance import
 │   └── /attendance/[userId]/[date]
-│                          S-12  Day record detail
-├── /leave                 S-13  Leave balances                M-5
+│                          S-12  P5  Day record detail
+├── /leave                 S-13  P5  Leave balances            M-5
 │   ├── /leave/[userId]/ledger
-│   │                      S-14  Ledger and balance trace
-│   └── /pto               S-15  PTO awards and CTO applications
-├── /teams                 S-16  Teams                         M-6
-│   └── /teams/[id]        S-17  Team configuration
-├── /settings              S-18  Company configuration         M-7
-│   └── /settings/access   S-19  Access control matrix
-├── /reports               S-20  Report builder                M-8
-│   └── /reports/annual    S-21  Annual summary
-└── /audit                 S-22  Audit log                     M-9
+│   │                      S-14  P5  Ledger and balance trace
+│   └── /pto               S-15  P6  PTO awards and CTO applications
+├── /teams                 S-16  P4  Teams                     M-6
+│   └── /teams/[id]        S-17  P4  Team configuration
+├── /settings              S-18  P4  Company configuration     M-7
+│   └── /settings/access   S-19  P4  Access control matrix
+├── /reports               S-20  P6  Report builder            M-8
+│   └── /reports/annual    S-21  P6  Annual summary
+└── /audit                 S-22  P4  Audit log                 M-9
 
-/signin  S-01   ·   /403  S-02   ·   /404  S-03                M-1
+/signin  S-01 ✔   ·   /403  S-02 ✔   ·   /404  S-03 ✔          M-1
 ```
+
+**Phase tags** carry `spec.md` §2.3's delivery scheme: `✔` delivered, `P4`
+basic, `P5` intermediate, `P6` complex, `PM` post-MVP. `ARCHITECTURE.md` §32.1
+is the canonical map.
 
 ---
 
@@ -70,7 +85,7 @@ Three rules govern the whole inventory:
 Covers `FR-1.1`, `FR-1.5`, `FR-8.2`. No popups — every rejection is an inline state, so the reason is readable
 without a dismissable overlay.
 
-#### S-01 · Sign in
+#### S-01 · Sign in · `✔`
 
 - **Route** `/signin`
 - **Purpose** Google sign in. The only unauthenticated screen.
@@ -80,7 +95,7 @@ without a dismissable overlay.
   unauthorised Workspace domain; no user holds that work email; the user is soft deleted; login is disabled;
   today falls outside the user's employment period.
 
-#### S-02 · Access denied
+#### S-02 · Access denied · `✔`
 
 - **Route** `/403`
 - **Purpose** Names the permission the viewer lacks, so a narrowed scope is diagnosable rather than mysterious.
@@ -88,7 +103,7 @@ without a dismissable overlay.
 - **Spec** `FR-8.2`, `NFR-7`
 - **States** Static. Offers a link back to `S-04`.
 
-#### S-03 · Not found
+#### S-03 · Not found · `✔`
 
 - **Route** `/404`
 - **Purpose** Unknown route, or a record the viewer's scope does not reach.
@@ -100,7 +115,7 @@ without a dismissable overlay.
 
 ### M-2 · Home & Exceptions
 
-#### S-04 · Home
+#### S-04 · Home · `P6`
 
 - **Route** `/`
 - **Purpose** Landing page for every role. Launchpad into the modules the viewer's permissions reach, plus a
@@ -114,7 +129,7 @@ without a dismissable overlay.
 - **States** Empty: a new user with no records sees the tiles and an explanatory line instead of zeroed stats.
   Loading: skeleton tiles. Error: per-tile, so one failing count does not blank the page.
 
-#### S-05 · Exceptions dashboard
+#### S-05 · Exceptions dashboard · `P6`
 
 - **Route** `/exceptions`
 - **Purpose** The single work queue of everything needing attention. Every unresolved item in the system
@@ -147,7 +162,7 @@ without a dismissable overlay.
 
 ### M-3 · People
 
-#### S-06 · User roster
+#### S-06 · User roster · `✔`
 
 - **Route** `/users`
 - **Purpose** Every user, searchable and filterable. The entry point for the whole user lifecycle.
@@ -161,7 +176,7 @@ without a dismissable overlay.
 - **Popups** `P-08` `P-15` `P-16`
 - **States** Empty: before the roster import, points at `S-08`. Loading: skeleton rows. Paged (`NFR-3`).
 
-#### S-07 · User detail
+#### S-07 · User detail · `P4`
 
 - **Route** `/users/[id]`
 - **Purpose** One user's whole record and history. The `FR-8.1` read surface for any colleague.
@@ -182,7 +197,7 @@ without a dismissable overlay.
 - **States** A soft-deleted user renders fully with a persistent *no longer active* banner. Error: stale-write
   conflicts route to `P-47`.
 
-#### S-08 · Roster import
+#### S-08 · Roster import · `P4`
 
 - **Route** `/users/import`
 - **Purpose** One-time go-live migration of the roster from the old workbook's `Biometric ID` sheet. Imports
@@ -203,7 +218,7 @@ without a dismissable overlay.
 
 ### M-4 · Attendance
 
-#### S-09 · Attendance overview
+#### S-09 · Attendance overview · `P5`
 
 - **Route** `/attendance`
 - **Purpose** Attendance statistics for every employee over a chosen date range. Read surface, filterable
@@ -220,7 +235,7 @@ without a dismissable overlay.
 - **Popups** `P-45`
 - **States** Empty: a range with no records says so. Paged and virtualised (`DC-10`).
 
-#### S-10 · Daily attendance grid
+#### S-10 · Daily attendance grid · `P5`
 
 - **Route** `/attendance/entry`
 - **Purpose** Enter and correct attendance for one team on one date. The write surface, built so a single
@@ -234,7 +249,7 @@ without a dismissable overlay.
 - **Popups** `P-21` `P-22` `P-23` `P-24` `P-25` `P-46` `P-47`
 - **States** Empty: a date outside every user's employment period renders no rows and says why.
 
-#### S-11 · Attendance import
+#### S-11 · Attendance import · `P5`
 
 - **Route** `/attendance/import`
 - **Purpose** Bulk load punches from the biometric Excel export.
@@ -251,7 +266,7 @@ without a dismissable overlay.
 - **States** Validation of 40,000 rows previews within 10 seconds (`NFR-4`). Error: the file is rejected whole
   before any commit, and the user corrects and re-uploads without leaving the browser (`NFR-1`).
 
-#### S-12 · Day record detail
+#### S-12 · Day record detail · `P5`
 
 - **Route** `/attendance/[userId]/[date]`
 - **Purpose** Everything the engine concluded about one user on one date, and why. This is where `FR-5.x`
@@ -276,7 +291,7 @@ without a dismissable overlay.
 
 ### M-5 · Leave & Balances
 
-#### S-13 · Leave balances
+#### S-13 · Leave balances · `P5`
 
 - **Route** `/leave`
 - **Purpose** Typed leave balances per user, per month and per year. Every figure is replayed from the ledger,
@@ -291,7 +306,7 @@ without a dismissable overlay.
 - **States** Every number links to `S-14`, so `NFR-11` — "why is this number what it is" — is answerable in
   one click.
 
-#### S-14 · Ledger and balance trace
+#### S-14 · Ledger and balance trace · `P5`
 
 - **Route** `/leave/[userId]/ledger`
 - **Purpose** Every immutable balance movement, in order, with the rule that produced it. The proof behind
@@ -307,7 +322,7 @@ without a dismissable overlay.
 - **States** Empty: a user created after cutover starts with no opening entry, and the screen says so
   rather than showing a zero row.
 
-#### S-15 · PTO awards and CTO applications
+#### S-15 · PTO awards and CTO applications · `P6`
 
 - **Route** `/pto`
 - **Purpose** Every PTO award and CTO application, at every stage: suggested, approved, declined, expired.
@@ -328,7 +343,7 @@ without a dismissable overlay.
 Holds the per-team half of the `FR-6.4` configuration list. Every value is data, editable at runtime with no
 redeploy (`DC-1`), and every value shown at seed is only a seed (`§3.10`).
 
-#### S-16 · Teams
+#### S-16 · Teams · `P4`
 
 - **Route** `/teams`
 - **Purpose** Every team, with its manager and member count.
@@ -339,7 +354,7 @@ redeploy (`DC-1`), and every value shown at seed is only a seed (`§3.10`).
 - **Popups** `P-28` `P-29`
 - **States** Empty: before setup, points at `P-28`.
 
-#### S-17 · Team configuration
+#### S-17 · Team configuration · `P4`
 
 - **Route** `/teams/[id]`
 - **Purpose** One team's complete policy. Two teams configured differently produce different results for the
@@ -369,7 +384,7 @@ redeploy (`DC-1`), and every value shown at seed is only a seed (`§3.10`).
 
 Holds the company-wide half of the `FR-6.4` list.
 
-#### S-18 · Company configuration
+#### S-18 · Company configuration · `P4`
 
 - **Route** `/settings`
 - **Purpose** Settings that are not per team.
@@ -381,7 +396,7 @@ Holds the company-wide half of the `FR-6.4` list.
 - **States** Note: there is no company-wide default timezone and none can be set here — every timestamp
   resolves through the shift's own timezone (`FR-3.10`, `DC-5`).
 
-#### S-19 · Access control matrix
+#### S-19 · Access control matrix · `P4`
 
 - **Route** `/settings/access`
 - **Purpose** Every permission the system defines, against every role, with the scope each holds it at. The
@@ -401,7 +416,7 @@ Holds the company-wide half of the `FR-6.4` list.
 
 ### M-8 · Reports
 
-#### S-20 · Report builder
+#### S-20 · Report builder · `P6`
 
 - **Route** `/reports`
 - **Purpose** An attendance report for any date range, per user and per team, reproducing the columns the
@@ -419,7 +434,7 @@ Holds the company-wide half of the `FR-6.4` list.
 - **States** A full-company month renders under 2 seconds at p95, paged rather than materialised whole
   (`NFR-3`, `DC-10`).
 
-#### S-21 · Annual summary
+#### S-21 · Annual summary · `P6`
 
 - **Route** `/reports/annual`
 - **Purpose** One user's year, aggregating every month.
@@ -434,7 +449,7 @@ Holds the company-wide half of the `FR-6.4` list.
 
 ### M-9 · Audit
 
-#### S-22 · Audit log
+#### S-22 · Audit log · `P4`
 
 - **Route** `/audit`
 - **Purpose** Every change ever made, append only and retained indefinitely.
@@ -454,11 +469,11 @@ Holds the company-wide half of the `FR-6.4` list.
 
 Reused across many screens rather than belonging to one.
 
-| ID | Popup | Purpose | Spec |
-| -- | ----- | ------- | ---- |
-| `P-45` | Record history drawer | The full change history of a single punch, day record, or balance: actor, action, before state, after state, time. | `FR-9.4`, `FR-9.2` |
-| `P-46` | Mandatory-reason confirm | Wraps every override, soft delete, restore, and manual adjustment. Shows the previous and new value; the confirm stays disabled until a reason is typed. | `FR-4.10`, `FR-6.10` |
-| `P-47` | Stale-write conflict | Rejects a write made against a stale version and shows the current state, so two `OFFICE_ADMIN` users on the same period never silently overwrite one another. | `NFR-14`, `DC-9` |
+| ID | Phase | Popup | Purpose | Spec |
+| -- | ----- | ----- | ------- | ---- |
+| `P-45` | `P4` | Record history drawer | The full change history of a single punch, day record, or balance: actor, action, before state, after state, time. | `FR-9.4`, `FR-9.2` |
+| `P-46` | `✔` | Mandatory-reason confirm | Wraps every override, soft delete, restore, and manual adjustment. Shows the previous and new value; the confirm stays disabled until a reason is typed. | `FR-4.10`, `FR-6.10` |
+| `P-47` | `✔` | Stale-write conflict | Rejects a write made against a stale version and shows the current state, so two `OFFICE_ADMIN` users on the same period never silently overwrite one another. | `NFR-14`, `DC-9` |
 
 ---
 
@@ -466,88 +481,93 @@ Reused across many screens rather than belonging to one.
 
 ### M-2 · Exception queue actions
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-01` | Approve PTO award | Names the rule and the proposed amount; the amount is editable, including to a figure no ladder row produces. | `FR-7.1`, `FR-7.2` |
-| `P-02` | Approve CTO application | Names the rule; amount editable. Blocks when unexpired PTO is insufficient, and offers an explicit, audited override of that block. | `FR-7.5`, `FR-6.10`, `BR-26` |
-| `P-03` | Decline suggestion | Records actor, time, suggested amount, mandatory reason. Posts nothing. | `FR-7.8` |
-| `P-04` | Originate PTO award or CTO application | For a user and date the engine raised no suggestion for. Identified in the ledger as a manual grant. | `FR-7.7`, `FR-7.6` |
-| `P-05` | Employment-period reduction approval | Names the user, the change, the dates, and every record approval would soft delete. Approve or reject. Reversing entries are posted on approval. | `FR-2.11` |
-| `P-06` | Set missing configuration value | Names the entity and the outstanding field; stays queued until set. | `FR-3.13` |
-| `P-07` | Resolve duplicate punch | Keep or soft delete, so a flagged pair is never double counted. | `FR-4.7`, `FR-4.12` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-01` | `P6` | Approve PTO award | Names the rule and the proposed amount; the amount is editable, including to a figure no ladder row produces. | `FR-7.1`, `FR-7.2` |
+| `P-02` | `P6` | Approve CTO application | Names the rule; amount editable. Blocks when unexpired PTO is insufficient, and offers an explicit, audited override of that block. | `FR-7.5`, `FR-6.10`, `BR-26` |
+| `P-03` | `P6` | Decline suggestion | Records actor, time, suggested amount, mandatory reason. Posts nothing. | `FR-7.8` |
+| `P-04` | `P6` | Originate PTO award or CTO application | For a user and date the engine raised no suggestion for. Identified in the ledger as a manual grant. | `FR-7.7`, `FR-7.6` |
+| `P-05` | `P6` | Employment-period reduction approval | Names the user, the change, the dates, and every record approval would soft delete. Approve or reject. Reversing entries are posted on approval. | `FR-2.11` |
+| `P-06` | `P6` | Set missing configuration value | Names the entity and the outstanding field; stays queued until set. | `FR-3.13` |
+| `P-07` | `P6` | Resolve duplicate punch | Keep or soft delete, so a flagged pair is never double counted. | `FR-4.7`, `FR-4.12` |
 
 ### M-3 · People
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-08` | Create user | Full name, employee code, work email (optional), team, employment type, tracked, role, shift. Employee code unique across all users including soft-deleted ones. | `FR-2.1`, `FR-2.6` |
-| `P-09` | Edit user | The `FR-2.6` fields. Role, team, and shift changes are separate operations. | `FR-2.1`, `FR-2.6` |
-| `P-10` | Change role | One role at a time. Choosing `MANAGER` requires naming the team, and replaces that team's previous manager in the same action. | `FR-1.7`, `FR-1.4`, `FR-3.1` |
-| `P-11` | Move team | Effective date; history never rewritten. Names a replacement manager if the user manages the outgoing team. States whether the user takes the new team's default shift or keeps their own. | `FR-3.14` |
-| `P-12` | Assign shift | Effective date range, so a mid-year change is preserved historically. Required for a tracked user. Also reached from the `S-05` no-shift queue. | `FR-3.4`, `FR-3.6`, `FR-3.12` |
-| `P-13` | Toggle tracked | Audited. Deletes no attendance history already recorded. Turning it on starts producing day records from that point forward. | `FR-2.10` |
-| `P-14` | Toggle login enabled | Audited. Meaningful only with a work email. Revokes access without touching history. | `FR-1.5`, `FR-2.5` |
-| `P-15` | Soft delete user | Requires a date of leaving, which closes the open tenure. Warns when records fall outside the reduced period and raises `P-05`. Access is lost immediately, never waiting for that approval. | `FR-2.2`, `FR-2.11`, `FR-2.12` |
-| `P-16` | Restore user | Requires stating the case. **Correction**: reopens the most recent tenure, restores records, reverses the reversing entries and the lapse entry. **Re-hire**: opens a new tenure from a supplied start date, balance starts at zero, entitlement prorates from that start. Both clear `deleted at` and date of leaving. | `FR-2.3`, `FR-6.6` |
-| `P-17` | Add or edit tenure | Start and end dates. Rejects an end before its start, and rejects overlap with another tenure of the same user. Editing corrects a wrong date but cannot close an open tenure. | `FR-2.12` |
-| `P-18` | Soft delete tenure | Rejected when it is the user's last tenure that is not soft deleted. Raises `P-05` where records fall outside the reduced period. | `FR-2.12`, `FR-2.11` |
-| `P-19` | Set opening leave balance | Cutover only, entered by hand from the old workbook. Posts a ledger entry identified as such, dated at cutover, with a mandatory reason. | `FR-6.13` |
-| `P-20` | Override leave entitlement | Overrides the figure prorated from the date of joining or the tenure start. | `FR-2.7`, `FR-6.10` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-08` | `✔` | Create user | Full name, employee code, work email (optional), team, employment type, tracked, role, shift. Employee code unique across all users including soft-deleted ones. | `FR-2.1`, `FR-2.6` |
+| `P-09` | `P4` | Edit user | The `FR-2.6` fields. Role, team, and shift changes are separate operations. | `FR-2.1`, `FR-2.6` |
+| `P-10` | `P4` | Change role | One role at a time. Choosing `MANAGER` requires naming the team, and replaces that team's previous manager in the same action. | `FR-1.7`, `FR-1.4`, `FR-3.1` |
+| `P-11` | `P4` | Move team | Effective date; history never rewritten. Names a replacement manager if the user manages the outgoing team. States whether the user takes the new team's default shift or keeps their own. | `FR-3.14` |
+| `P-12` | `P4` | Assign shift | Effective date range, so a mid-year change is preserved historically. Required for a tracked user. Also reached from the `S-05` no-shift queue. | `FR-3.4`, `FR-3.6`, `FR-3.12` |
+| `P-13` | `P4` | Toggle tracked | Audited. Deletes no attendance history already recorded. Turning it on starts producing day records from that point forward. | `FR-2.10` |
+| `P-14` | `P4` | Toggle login enabled | Audited. Meaningful only with a work email. Revokes access without touching history. | `FR-1.5`, `FR-2.5` |
+| `P-15` | `✔` | Soft delete user | Requires a date of leaving, which closes the open tenure. Warns when records fall outside the reduced period and raises `P-05`. Access is lost immediately, never waiting for that approval. | `FR-2.2`, `FR-2.11`, `FR-2.12` |
+| `P-16` | `✔` | Restore user | Requires stating the case. **Correction**: reopens the most recent tenure, restores records, reverses the reversing entries and the lapse entry. **Re-hire**: opens a new tenure from a supplied start date, balance starts at zero, entitlement prorates from that start. Both clear `deleted at` and date of leaving. | `FR-2.3`, `FR-6.6` |
+| `P-17` | `P4` | Add or edit tenure | Start and end dates. Rejects an end before its start, and rejects overlap with another tenure of the same user. Editing corrects a wrong date but cannot close an open tenure. | `FR-2.12` |
+| `P-18` | `P4` | Soft delete tenure | Rejected when it is the user's last tenure that is not soft deleted. Raises `P-05` where records fall outside the reduced period. | `FR-2.12`, `FR-2.11` |
+| `P-19` | `P5` | Set opening leave balance | Cutover only, entered by hand from the old workbook. Posts a ledger entry identified as such, dated at cutover, with a mandatory reason. | `FR-6.13` |
+| `P-20` | `P5` | Override leave entitlement | Overrides the figure prorated from the date of joining or the tenure start. | `FR-2.7`, `FR-6.10` |
 
 ### M-4 · Attendance
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-21` | Add or edit punch | Time, check in or check out, and the user it belongs to. A wrong punch is fixed by editing it, never by adding a cancelling punch. Rejects a move outside the employment period or onto an untracked user, and rejects a spring-forward time that does not exist locally. Recalculates both the day it left and the day it moved to. | `FR-4.1`, `FR-4.12`, `FR-3.11`, `FR-5.8` |
-| `P-22` | Soft delete punch | For a punch that should not be there. Triggers recalculation. | `FR-4.12`, `NFR-9` |
-| `P-23` | Set day status | `WFO`, `WFH`, `LEAVE` with its type, `HOLIDAY_WORK`, `WEEKLY_OFF`, `HOLIDAY`, `ABSENT`. `WFH` debits the WFH balance. Half a day of leave is `LEAVE` with a half-day amount on the ledger, not a status of its own. | `FR-4.9`, `FR-5.2`, `FR-5.4`, `FR-5.5` |
-| `P-24` | Adjust hours | Manually add or correct the hours on a day. | `FR-4.9`, `FR-6.10` |
-| `P-25` | Override late arrival or short day | Waives the deduction, which then counts as compliant. An `OFFICE_ADMIN` action, never a manager one. | `FR-6.10`, `BR-8` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-21` | `P5` | Add or edit punch | Time, check in or check out, and the user it belongs to. A wrong punch is fixed by editing it, never by adding a cancelling punch. Rejects a move outside the employment period or onto an untracked user, and rejects a spring-forward time that does not exist locally. Recalculates both the day it left and the day it moved to. | `FR-4.1`, `FR-4.12`, `FR-3.11`, `FR-5.8` |
+| `P-22` | `P5` | Soft delete punch | For a punch that should not be there. Triggers recalculation. | `FR-4.12`, `NFR-9` |
+| `P-23` | `P5` | Set day status | `WFO`, `WFH`, `LEAVE` with its type, `HOLIDAY_WORK`, `WEEKLY_OFF`, `HOLIDAY`, `ABSENT`. `WFH` debits the WFH balance. Half a day of leave is `LEAVE` with a half-day amount on the ledger, not a status of its own. | `FR-4.9`, `FR-5.2`, `FR-5.4`, `FR-5.5` |
+| `P-24` | `P5` | Adjust hours | Manually add or correct the hours on a day. | `FR-4.9`, `FR-6.10` |
+| `P-25` | `P5` | Override late arrival or short day | Waives the deduction, which then counts as compliant. An `OFFICE_ADMIN` action, never a manager one. | `FR-6.10`, `BR-8` |
 
 ### M-5 · Leave & Balances
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-26` | Record leave | Type is mandatory — a leave without one is rejected, so no consumption order between types is ever needed. Paternity and maternity post to their own typed balance and never touch the standard one. | `FR-6.2`, `FR-6.9`, `BR-11` |
-| `P-27` | Override PTO expiry | Extends or changes an award's expiry date. | `FR-7.3`, `FR-6.10` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-26` | `P5` | Record leave | Type is mandatory — a leave without one is rejected, so no consumption order between types is ever needed. Paternity and maternity post to their own typed balance and never touch the standard one. | `FR-6.2`, `FR-6.9`, `BR-11` |
+| `P-27` | `P6` | Override PTO expiry | Extends or changes an award's expiry date. | `FR-7.3`, `FR-6.10` |
 
 ### M-6 · Organisation & Policy
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-28` | Create or edit team | Names exactly one manager. | `FR-3.1`, `FR-3.2` |
-| `P-29` | Soft delete team | Rejected while any user who is not soft deleted is still assigned, naming those users so they can be moved first. A team with only past assignments may be soft deleted. | `FR-3.2` |
-| `P-30` | Shift | Name, start time, end time, required daily duration, grace period, timezone. Create, edit, soft delete; set the team default. | `FR-3.3`, `FR-3.4`, `BR-1`–`BR-4`, `BR-7` |
-| `P-31` | Holiday | Date and type: public holiday or company holiday. Never depends on formatting or colour. A mid-year correction triggers recalculation of the affected dates. | `FR-3.7`, `BR-15` |
-| `P-32` | Weekly off pattern | Which days of the week are non-working for this team; not assumed to be Saturday and Sunday. | `FR-3.8` |
-| `P-33` | Leave types and entitlement | Types and their annual entitlement, seeded 10 Annual, 10 Sick, 10 Casual. | `FR-6.2`, `BR-12` |
-| `P-34` | Accrual and carry forward | Accrual period, seeded to the leave year, and the carry-forward policy. | `FR-6.6`, `BR-13` |
-| `P-35` | Leave Deduction Ladder | The bands, plus the single leave type automatic deductions post to (seeded Casual). Bands are percentages of the scheduled shift, not absolute hours. | `FR-6.3`, `BR-9`, `BR-26` |
-| `P-36` | PTO award ladder and validity | The bands the engine proposes from, and the validity period seeded at 30 days. The ladder decides what is proposed, never what may be approved. | `FR-7.2`, `FR-7.3`, `BR-18`–`BR-21` |
-| `P-37` | CTO application ladder | The lateness bands and the CTO amount each proposes. | `FR-7.5`, `BR-22`–`BR-25` |
-| `P-38` | WFH quota | Days per period and the total allowed over that period. A team set to zero allows none. | `FR-5.5`, `BR-16`, `BR-17` |
-| `P-39` | Thresholds and windows | Short-day threshold, holiday-work threshold, midnight-crossing punch window, duplicate-punch window. | `FR-5.7`, `FR-5.8`, `FR-4.7`, `BR-5`, `BR-27` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-28` | `P4` | Create or edit team | Names exactly one manager. | `FR-3.1`, `FR-3.2` |
+| `P-29` | `P4` | Soft delete team | Rejected while any user who is not soft deleted is still assigned, naming those users so they can be moved first. A team with only past assignments may be soft deleted. | `FR-3.2` |
+| `P-30` | `P4` | Shift | Name, start time, end time, required daily duration, grace period, timezone. Create, edit, soft delete; set the team default. | `FR-3.3`, `FR-3.4`, `BR-1`–`BR-4`, `BR-7` |
+| `P-31` | `P4` | Holiday | Date and type: public holiday or company holiday. Never depends on formatting or colour. A mid-year correction triggers recalculation of the affected dates. | `FR-3.7`, `BR-15` |
+| `P-32` | `P4` | Weekly off pattern | Which days of the week are non-working for this team; not assumed to be Saturday and Sunday. | `FR-3.8` |
+| `P-33` | `P4` | Leave types and entitlement | Types and their annual entitlement, seeded 10 Annual, 10 Sick, 10 Casual. | `FR-6.2`, `BR-12` |
+| `P-34` | `P4` | Accrual and carry forward | Accrual period, seeded to the leave year, and the carry-forward policy. | `FR-6.6`, `BR-13` |
+| `P-35` | `P4` | Leave Deduction Ladder | The bands, plus the single leave type automatic deductions post to (seeded Casual). Bands are percentages of the scheduled shift, not absolute hours. | `FR-6.3`, `BR-9`, `BR-26` |
+| `P-36` | `P4` | PTO award ladder and validity | The bands the engine proposes from, and the validity period seeded at 30 days. The ladder decides what is proposed, never what may be approved. | `FR-7.2`, `FR-7.3`, `BR-18`–`BR-21` |
+| `P-37` | `P4` | CTO application ladder | The lateness bands and the CTO amount each proposes. | `FR-7.5`, `BR-22`–`BR-25` |
+| `P-38` | `P4` | WFH quota | Days per period and the total allowed over that period. A team set to zero allows none. | `FR-5.5`, `BR-16`, `BR-17` |
+| `P-39` | `P4` | Thresholds and windows | Short-day threshold, holiday-work threshold, midnight-crossing punch window, duplicate-punch window. | `FR-5.7`, `FR-5.8`, `FR-4.7`, `BR-5`, `BR-27` |
 
 ### M-7 · Company Config & Access Control
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-40` | Employment type | Create, edit, soft delete. No permission depends on employment type. | `FR-2.6`, `FR-6.4` |
-| `P-41` | Authorised Workspace domain | Add or remove a Google Workspace domain permitted to sign in. | `FR-1.5`, `FR-6.4` |
-| `P-42` | Edit permission grant | Sets the scope a role holds a permission at: `SELF`, `TEAM`, `ALL`, or none. Rejects any edit that reduces `OFFICE_ADMIN`. Effective on the next request. | `FR-1.2`, `FR-1.3` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-40` | `P4` | Employment type | Create, edit, soft delete. No permission depends on employment type. | `FR-2.6`, `FR-6.4` |
+| `P-41` | `P4` | Authorised Workspace domain | Add or remove a Google Workspace domain permitted to sign in. | `FR-1.5`, `FR-6.4` |
+| `P-42` | `P4` | Edit permission grant | Sets the scope a role holds a permission at: `SELF`, `TEAM`, `ALL`, or none. Rejects any edit that reduces `OFFICE_ADMIN`. Effective on the next request. | `FR-1.2`, `FR-1.3` |
 
 ### M-8 and M-9
 
-| ID | Popup | Notes | Spec |
-| -- | ----- | ----- | ---- |
-| `P-43` | Export report | Excel or CSV, of the report as currently filtered. | `FR-8.5` |
-| `P-44` | Audit record detail | Actor, action, entity type and identifier, before state, after state, time. Read only. | `FR-9.2`, `FR-9.3` |
+| ID | Phase | Popup | Notes | Spec |
+| -- | ----- | ----- | ----- | ---- |
+| `P-43` | `P6` | Export report | Excel or CSV, of the report as currently filtered. | `FR-8.5` |
+| `P-44` | `P4` | Audit record detail | Actor, action, entity type and identifier, before state, after state, time. Read only. | `FR-9.2`, `FR-9.3` |
 
 ---
 
 ## 6. Coverage matrix
 
 Every requirement in `spec.md` §3, against the screen or popup that satisfies it.
+
+**This table deliberately carries no Phase column.** Both sides of it are already
+tagged — the requirement in `spec.md` §3, the screen or popup above — so a third
+copy of the same fact would be pure drift surface. Read the phase off whichever
+side you came from.
 
 | Req | Satisfied by |
 | --- | ------------ |
@@ -639,18 +659,18 @@ Every requirement in `spec.md` §3, against the screen or popup that satisfies i
 
 ---
 
-## 7. Post-MVP
+## 7. Post-MVP · `PM`
 
 In scope for the product, not for the MVP. The schema supports all of it from day one, so no migration is
-needed when it ships (`DC-12`, `§2.3`).
+needed when it ships (`DC-12`, `§2.3`). **Nothing here belongs to Phases 4 to 7** — every entry tags `PM`.
 
-| ID | Screen or popup | Route | Purpose | Spec |
-| -- | --------------- | ----- | ------- | ---- |
-| `S-23` | Leave request | `/leave/request` | Employee self service: submit a typed leave request for a date range. | `FR-6.7` |
-| `S-24` | Leave approvals | `/leave/approvals` | A manager's queue of requests from their own team. | `FR-6.7` |
-| `S-25` | Company switcher | `/settings/companies` | Multi-company / multi-tenant selection. No MVP surface. | `§2.3` |
-| `P-48` | Submit leave request | — | Type, date range, reason. | `FR-6.7` |
-| `P-49` | Approve or reject leave request | — | Decision with a reason, scoped to the manager's own team. | `FR-6.7` |
+| ID | Phase | Screen or popup | Route | Purpose | Spec |
+| -- | ----- | --------------- | ----- | ------- | ---- |
+| `S-23` | `PM` | Leave request | `/leave/request` | Employee self service: submit a typed leave request for a date range. | `FR-6.7` |
+| `S-24` | `PM` | Leave approvals | `/leave/approvals` | A manager's queue of requests from their own team. | `FR-6.7` |
+| `S-25` | `PM` | Company switcher | `/settings/companies` | Multi-company / multi-tenant selection. No MVP surface. | `§2.3` |
+| `P-48` | `PM` | Submit leave request | — | Type, date range, reason. | `FR-6.7` |
+| `P-49` | `PM` | Approve or reject leave request | — | Decision with a reason, scoped to the manager's own team. | `FR-6.7` |
 
 **Note:** `MANAGER`'s leave approval permission at `TEAM` scope is seeded in **Phase 1** and is visible on
 `S-19` from day one. Only the request and approval *workflow* is deferred.

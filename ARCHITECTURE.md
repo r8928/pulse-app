@@ -64,6 +64,7 @@ established over inventing a new one.
 
 **Part IV — [Sequencing](#part-iv--sequencing)**
 [32 Build order](#32-build-order) ·
+[**32.1 The canonical phase map**](#321-the-canonical-phase-map) ·
 [33 Definition of done](#33-definition-of-done) ·
 [34 Traceability](#34-traceability)
 
@@ -108,12 +109,18 @@ specifies that warning.
 `recalculateDays(userId, dateRange)` (§23.3). Moving it behind a queue means
 changing its callers, not its logic. Do not build both paths.
 
-### D-3 · Build order is dependency order
+### D-3 · Build order is dependency order, and the phases follow it
 
-§32 sequences the remaining work by what must exist before what. It is
-**not** the supervisor's phase numbering, which is agreed separately. Where
-the two differ, the supervisor's plan decides *when*; this decides *what
-breaks if you go earlier*.
+§32 sequences the remaining work by what must exist before what. §32.1 maps
+that sequence onto the agreed delivery phases — Phase 4 basic, Phase 5
+intermediate, Phase 6 complex, Phase 7 testing — and **the two agree**, because
+a phase boundary that cuts across a dependency edge produces work that has to
+be thrown away.
+
+**§32.1 is the canonical phase map.** `spec.md` §2.3 defines the tags, and
+every `FR-` row, screen and popup carries one; this is the only place a phase's
+full membership is listed. Where an inline tag and §32.1 disagree, §32.1 is
+stale — fix it here, in the same change.
 
 ---
 
@@ -655,6 +662,12 @@ implementation fails them loudly rather than producing a plausible number.
 ---
 
 # Part II — The engine
+
+**Phase:** `P5` for §13–§20 and §23 — work date, duration, day type, day
+status, punctuality, the deduction ladder, the ledger and accrual, plus
+overrides and recalculation. **§21 PTO and §22 CTO are `P6`**, because both are
+approval workflows rather than calculations: the engine only ever *proposes*,
+and nothing posts until a human decides.
 
 This is the part most likely to be built subtly wrong: it will produce
 plausible numbers while being incorrect. Every section below gives the
@@ -1520,6 +1533,7 @@ and this section adds only what that document leaves to the implementer.
 
 ## 24 M-6 · Organisation and Policy
 
+**Phase:** `P4` — the whole module.
 **Screens:** `S-16` Teams · `S-17` Team configuration
 **Popups:** `P-28`–`P-39`
 **Build first.** Attendance cannot classify a day without a shift, a calendar
@@ -1564,6 +1578,8 @@ and a weekly-off pattern.
 
 ## 25 M-4 · Attendance
 
+**Phase:** `P5`, except `P-07` resolve duplicate punch, which is `P6` with the
+`S-05` queue that reaches it.
 **Screens:** `S-09` overview · `S-10` daily grid · `S-11` import · `S-12` day detail
 **Popups:** `P-21`–`P-25`, `P-07`
 **Depends on:** M-6, and Part II.
@@ -1631,6 +1647,9 @@ and a weekly-off pattern.
 
 ## 26 M-5 · Leave and Balances
 
+**Phase:** split. `S-13`, `S-14`, `P-19`, `P-20`, `P-26` are `P5` — the ledger
+and the balances replayed from it. `S-15`, `P-01`–`P-04` and `P-27` are `P6`
+with the rest of PTO and CTO.
 **Screens:** `S-13` balances · `S-14` ledger · `S-15` PTO and CTO
 **Popups:** `P-19`, `P-20`, `P-26`, `P-27`, `P-01`–`P-04`
 **Depends on:** M-4 and Part II §19–§22.
@@ -1678,6 +1697,8 @@ and a weekly-off pattern.
 
 ## 27 M-2 · Exceptions
 
+**Phase:** `P6` — the whole module. The engine *raises* exceptions into
+`dayRecord.exceptions` in `P5`; this is the screen that reads them.
 **Screen:** `S-05` · **Popups:** `P-01`–`P-07`, `P-12`, `P-21`
 **Depends on:** every module that raises an exception. Build the frame early,
 add tabs as their sources land.
@@ -1724,6 +1745,10 @@ fixed by another route.
 
 ## 28 M-3 · People, the remainder
 
+**Phase:** `P4`, except item 5 — the `FR-2.11` employment-period reduction
+approval — which is `P6`, because it is an approval workflow that posts
+reversing ledger entries and neither exists before `P5`.
+
 Roster, detail Overview/Tenures/History, create, soft delete and restore are
 **already built**. What remains:
 
@@ -1756,6 +1781,8 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
 
 ## 29 M-7 · Config and access control
 
+**Phase:** `P4` — the whole module. It has no dependencies at all, so it can
+run in parallel with M-6.
 **Screens:** `S-18` company configuration · `S-19` access control matrix
 **Popups:** `P-40`, `P-41`, `P-42`
 
@@ -1779,6 +1806,7 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
 
 ## 30 M-8 · Reports
 
+**Phase:** `P6` — the whole module.
 **Screens:** `S-20` report builder · `S-21` annual summary · **Popup:** `P-43`
 **Depends on:** everything. Build last.
 
@@ -1803,6 +1831,8 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
 
 ## 31 M-9 · Audit
 
+**Phase:** `P4` — the read surface plus `P-45`. Writing is `✔+`: the mechanism
+is built and every later phase extends it to its own entities.
 **Screen:** `S-22` · **Popup:** `P-44`
 
 Mostly already satisfied — `writeAuditRecord` and `getRecordHistory` exist and
@@ -1820,9 +1850,9 @@ import both write records.
 
 ## 32 Build order
 
-**Dependency order, not the supervisor's phase numbering** (decision `D-3`).
-Where the agreed plan differs, it decides *when*; this says what breaks if you
-go earlier.
+**Dependency order.** §32.1 groups this same sequence into the agreed delivery
+phases, and the two agree by construction (decision `D-3`). This section says
+what breaks if you go earlier; §32.1 says which phase owns it.
 
 ```
   ✔ 0  Boilerplate                                        DONE
@@ -1873,6 +1903,99 @@ alongside.
 **Why this order.** Each step's output is the next step's input. Building
 attendance before shifts means inventing a shift; building reports before the
 ledger means inventing a balance. Both produce code that is thrown away.
+
+## 32.1 The canonical phase map
+
+**This is the authoritative list.** `spec.md` §2.3 defines the tags; every
+`FR-` row, screen and popup carries one; this is the only place a phase's full
+membership is written down. Where an inline tag and this table disagree, this
+table is stale — fix it here in the same change (`D-3`).
+
+The map is the §32 build order grouped, not a second ordering. Steps 1 and the
+dependency-free work form Phase 4; steps 2 to 4 form Phase 5; steps 5 to 7, 9
+and the `FR-2.11` half of step 8 form Phase 6.
+
+### Phase 4 · Basic
+
+*Stores and shows data. No calculation, and nothing beneath it is unbuilt.*
+
+| Group | Screens | Popups | Requirements |
+| ----- | ------- | ------ | ------------ |
+| M-6 Organisation and policy (§24) | `S-16` `S-17` | `P-28`–`P-39` | `FR-3.1`–`FR-3.4`, `FR-3.6`–`FR-3.8`, `FR-6.4`, `BR-1`–`BR-4`, `BR-7` |
+| M-7 Config and access (§29) | `S-18` `S-19` | `P-40`–`P-42` | `FR-1.2`–`FR-1.5`, `FR-2.6` |
+| M-3 People remainder (§28) | `S-07` tabs, `S-08` | `P-09`–`P-14`, `P-17`, `P-18` | `FR-1.7`, `FR-2.1`, `FR-2.9`, `FR-2.12` |
+| M-9 Audit read surface (§31) | `S-22` | `P-44`, `P-45` | `FR-1.6`, `FR-9.4` |
+| Shell (`DESIGN.md` known gap) | — | — | `NFR-1` mobile drawer |
+
+**Why these are basic.** Every one is a form over a collection that already
+exists. None reads a day record, a punch or a ledger entry, because none of
+those has been written yet. `S-19` in particular has no dependency at all —
+`validateGrants` already enforces `FR-1.3` server-side, so the screen is a
+matrix editor over `permissionGrants`.
+
+**Phase 4 must finish before Phase 5 starts.** The engine cannot resolve a work
+date without a shift and its timezone, cannot resolve a day type without a
+calendar and a weekly-off pattern, and cannot compute a deduction without a
+ladder. Building them in the other order means inventing all four.
+
+### Phase 5 · Intermediate
+
+*The calculation engine and the two entities it derives.*
+
+| Group | Screens | Popups | Requirements |
+| ----- | ------- | ------ | ------------ |
+| Engine core (§13–§20, §23) | — | — | `FR-3.5`, `FR-3.10`, `FR-3.11`, `FR-3.14`, `FR-5.1`–`FR-5.9`, `FR-6.1`, `FR-6.11`, `FR-6.12`, `BR-5`, `BR-6`, `BR-8`, `BR-9`, `BR-11`, `BR-27` |
+| M-4 Attendance (§25) | `S-09` `S-10` `S-11` `S-12` | `P-21`–`P-25` | `FR-4.1`–`FR-4.6`, `FR-4.9`–`FR-4.12` |
+| M-5 Ledger and balances (§26) | `S-13` `S-14` | `P-19`, `P-20`, `P-26` | `FR-2.7`, `FR-6.2`, `FR-6.3`, `FR-6.5`, `FR-6.6`, `FR-6.8`, `FR-6.9`, `FR-6.13`, `BR-12`–`BR-17` |
+
+**Why these are intermediate.** Each is a calculation with one correct answer,
+testable in isolation because every engine function takes policy as an argument
+(§8.2). There is no human decision anywhere in this phase — the engine
+computes, the ledger records, the screens display.
+
+### Phase 6 · Complex
+
+*Multi-step human approval workflows and wide aggregation.*
+
+| Group | Screens | Popups | Requirements |
+| ----- | ------- | ------ | ------------ |
+| PTO and CTO (§21, §22) | `S-15` | `P-01`–`P-04`, `P-27` | `FR-7.1`–`FR-7.8`, `FR-6.10`, `BR-18`–`BR-26` |
+| M-2 Exceptions (§27) | `S-05`, `S-04` completion | `P-05`–`P-07` | `FR-8.6`, `FR-3.12`, `FR-3.13`, `FR-4.7`, `FR-4.8` |
+| `FR-2.11` reduction approval (§28) | — | `P-05` | `FR-2.4`, `FR-2.10`, `FR-2.11` |
+| M-8 Reports (§30) | `S-20` `S-21` | `P-43` | `FR-3.9`, `FR-8.1`, `FR-8.3`–`FR-8.5` |
+
+**Why these are complex.** Every item holds state across more than one request
+and more than one actor: a proposal that must not post, a decision that must
+persist, a decline that must not be re-proposed, an approval that reverses
+ledger entries written in an earlier phase. The reports are here for a
+different reason — they aggregate across every collection the two earlier
+phases produced, and `NFR-3` means they must page rather than materialise.
+
+### Requirements that split across phases
+
+Each carries the tag of its **last** piece (`spec.md` §2.3). The earlier half is
+named here so it is not lost.
+
+| Requirement | Tagged | Earlier piece |
+| ----------- | ------ | ------------- |
+| `FR-3.12` no shift assigned | `P6` | `P5` — the engine raises it and leaves the day statusless (§13.1) |
+| `FR-3.13` missing configuration | `P6` | `P4` — `S-17` flags the unset value inline |
+| `FR-4.7` duplicate punch | `P6` | `P5` — the engine flags and excludes it from pairing (§14.1) |
+| `FR-4.8` missing punch | `P6` | `P5` — pairing emits the exception code (§14.1) |
+| `FR-2.4`, `FR-2.10` soft-deleted and untracked users | `P6` | `✔` roster behaviour · `P5` attendance totals |
+| `FR-6.10` the nine overrides | `P6` | `P5` — the four day-level overrides (`P-23`–`P-25`) |
+| `FR-8.1` read any colleague's records | `P6` | `P5` — `S-09` and `S-13`; `S-21` completes it |
+| `FR-9.1` audit everything | `✔+` | every phase extends it to its own entities |
+
+### Phase 7 · Testing
+
+Not a set of screens. It runs the nineteen MVP acceptance criteria of `spec.md`
+§3.11 deliberately, measures `NFR-3` and `NFR-4` at the `NFR-5` ceiling rather
+than assuming them, audits `NFR-12` against WCAG 2.1 AA, and exercises `NFR-8`
+and `NFR-15` by re-running a past period and a recalculation twice.
+
+§33 already states the per-module bar. Phase 7 is what confirms it held across
+all of them at once.
 
 ## 33 Definition of done
 
