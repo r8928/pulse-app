@@ -233,9 +233,34 @@ export async function ensureIndexes() {
       { key: { companyId: 1, date: 1 } },
     ]);
 
-  await db
-    .collection(COLLECTIONS.LEDGER_ENTRIES)
-    .createIndexes([{ key: { companyId: 1, userId: 1, date: 1 } }]);
+  await db.collection(COLLECTIONS.LEDGER_ENTRIES).createIndexes([
+    // Balance replay: every entry for a user up to a date (BR-14).
+    { key: { companyId: 1, userId: 1, date: 1 } },
+
+    /**
+     * Idempotency guard (NFR-15, invariant I-9). Two entries sharing an effect
+     * key are the same movement recomputed, so the second insert is refused
+     * and a re-run cannot double-post. See `utils/ledgerKey.js` for why the
+     * source version is part of that key.
+     *
+     * This index must exist BEFORE the first ledger entry is written. Adding
+     * it afterwards fails if duplicates already exist, and duplicates cannot
+     * be deleted — a ledger entry is cancelled only by a reversing entry
+     * (FR-6.8, DC-3). Retrofitting would mean permanently polluting the ledger
+     * with reversals for rows that should never have existed.
+     *
+     * Partial on `effectKey` being a string, because reversal entries
+     * deliberately carry none: a movement may legitimately be reversed and
+     * re-applied. `$ne` is not permitted in a partialFilterExpression, so
+     * absence of the field is what excludes them.
+     */
+    {
+      key: { companyId: 1, userId: 1, effectKey: 1 },
+      unique: true,
+      partialFilterExpression: { effectKey: { $type: 'string' } },
+      name: 'ledger_effect_idempotency',
+    },
+  ]);
 
   await db
     .collection(COLLECTIONS.APPROVALS)
@@ -409,7 +434,10 @@ export async function listUsers({
   const [items, total, activeCount] = await Promise.all([
     collection
       .find(filter)
-      .sort({ fullName: 1 })
+      // `_id` breaks the tie. Sorting on a non-unique field alone lets two
+      // users with the same name repeat on one page and vanish from the next,
+      // because the database is free to order equal keys differently per query.
+      .sort({ fullName: 1, _id: 1 })
       .skip((page - 1) * pageSize)
       .limit(pageSize)
       .toArray(),

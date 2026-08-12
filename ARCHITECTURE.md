@@ -497,6 +497,25 @@ default. It raises an exception onto `S-05`, naming the entity and the
 outstanding field, and stays queued until set. The day record is still created
 but carries no status (`FR-3.12`).
 
+**Two values are deliberately unseeded and will be unset on every team until
+an administrator sets them:**
+
+| Value | Needed by | Without it |
+| ----- | --------- | ---------- |
+| `midnightCrossingWindowHours` | `FR-5.8`, §13.1 | A crossing shift cannot resolve a punch's work date |
+| `duplicatePunchWindowMinutes` | `FR-4.7`, §14.1 | Duplicate punches cannot be flagged |
+
+Every other figure in `teamPolicy` comes from a `BR` rule in `spec.md` §3.10
+and is seeded from it. These two are named as per-team configuration by the
+spec but given **no value anywhere in it**, so seeding a guess would dress an
+invention up as policy. `S-05` must therefore carry both from day one, and
+`S-17`'s Thresholds & windows tab must flag them inline.
+
+The same applies to the shift timezone on the non-Pacific teams: `BR-4` fixes
+Sales and Marketing on US Pacific, but the spec never states the local zone.
+`Asia/Karachi` is seeded as a value to **confirm at team setup**, not one the
+system inferred.
+
 ## 9 API contracts
 
 ### 9.1 Status codes
@@ -1117,10 +1136,14 @@ editing or deleting the original.
   amount: -0.25,                 // SIGNED: credits +, debits −
 
   rule: 'BR-9:profileB:band1',   // or MANUAL_GRANT — FR-7.6
+
   sourceType: 'dayRecord',       // what caused it
   sourceId: '<dayRecord _id>',
+  sourceVersion: 3,              // the source's version when this was computed
+  effectKey: 'dayRecord:…:v3:AUTOMATIC_DEDUCTION:Casual',   // §19.3
 
-  reversalOf: null,              // set on a reversing entry
+  reversalOf: null,              // set on a reversing entry, which carries
+                                 // NO effectKey — see §19.3
 
   actorId, actorName, reason,    // reason mandatory on manual and reversing
   createdAt: Date,
@@ -1148,17 +1171,55 @@ PTO balance     = approved awards − PTO taken as leave − CTO applications
 Both fall out of the same sum, because each term is an entry with the right
 sign. **Do not implement two formulas.**
 
-### 19.3 Idempotency — the mechanism that makes `I-9` true
+### 19.3 Idempotency
 
-Every entry carries `(sourceType, sourceId, entryType)`. Put a **unique
-partial index** on `(companyId, userId, sourceType, sourceId, entryType)` for
-non-reversal entries.
+**Already built.** `utils/ledgerKey.js` and the `ledger_effect_idempotency`
+index in `ensureIndexes()`.
 
-Re-running a recalculation therefore *cannot* double-post: the second insert
-violates the index and is ignored. This is what makes `NFR-15` structural
-rather than a promise about how carefully the code was written.
+Every non-reversal entry carries an `effectKey` identifying *the effect it
+represents*, built by `ledgerEffectKey()`:
 
-Reversals are exempt — a movement may legitimately be reversed and re-applied.
+```
+sourceType : sourceId : v{sourceVersion} : entryType : leaveType
+```
+
+A **unique partial index** on `(companyId, userId, effectKey)` refuses the
+second insert of the same effect.
+
+**This is defence in depth, not the primary mechanism.** Step 9 of
+`recalculateDays` reconciles desired entries against existing ones regardless,
+and if that is written correctly this index never fires. It earns its place
+because the failure it guards against is silent balance corruption, and
+`FR-6.8` forbids cleaning that up — a ledger entry can only ever be reversed,
+so duplicates stay visible on `S-14` permanently.
+
+**Why the source version is in the key.** Without it, a legitimate correction —
+a fixed punch moving a day's deduction from 0.25 to 0.5 — would produce the
+same key as the entry it replaces and be refused. The index would then break
+correct behaviour instead of protecting it. With the version included, a re-run
+of an unchanged day reuses the version and is refused, while a real change
+bumps the source's version and is allowed. It stays correct even when a value
+returns to an earlier amount, because versions only ever increase.
+
+**The amount is deliberately not part of the identity.** Two entries differing
+only in amount at the same source version are the same effect computed twice —
+exactly what must not post twice.
+
+**Reversal entries carry no `effectKey`**, which is how the partial index
+excludes them: a movement may legitimately be reversed and re-applied. `$ne` is
+not permitted in a `partialFilterExpression`, so absence of the field does that
+work.
+
+> **This carries one requirement on the caller.** `recalculateDays` must not
+> bump a record's `version` when nothing about it changed, or a re-run would
+> mint a fresh key and post again. Compare freshly computed values against the
+> stored ones and skip the write when they match. Correct behaviour anyway — a
+> spurious bump also fires a stale-write `409` at anyone else holding the
+> record (§6).
+
+The index was added during Phase 2, before the first entry existed, because
+adding it later fails if duplicates are already present and they cannot be
+deleted.
 
 ### 19.4 Reversing
 
@@ -1411,7 +1472,8 @@ recalculateDays(userId, fromDate, toDate):
          - append any entry the source now implies (idempotent by index)
          - REVERSE any entry whose source no longer implies it
     10. re-evaluate PTO / CTO candidates; respect prior declines    §21.4
-    11. write the record with $inc version, audit the change
+    11. if computed changed: write with $inc version, audit the change
+        if nothing changed: write NOTHING — do not bump version   ← §19.3
 ```
 
 **Step 9 reconciles rather than deletes.** An entry that should no longer

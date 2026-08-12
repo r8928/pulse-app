@@ -212,8 +212,19 @@ const basePolicy = {
   wfhQuotaDaysPerMonth: 5, // BR-16
   shortDayThresholdPercent: 89, // BR-5
   holidayWorkThresholdPercent: 22, // BR-27
-  midnightCrossingWindowHours: 8, // FR-5.8
-  duplicatePunchWindowMinutes: 5, // FR-4.7
+
+  /**
+   * Deliberately NOT seeded: `midnightCrossingWindowHours` (FR-5.8) and
+   * `duplicatePunchWindowMinutes` (FR-4.7).
+   *
+   * Both are per-team configuration, and spec.md gives no value for either —
+   * unlike every figure above, each of which comes from a BR rule. Seeding a
+   * guess would dress an invention up as policy, and DC-6 forbids exactly that.
+   *
+   * OFFICE_ADMIN is prompted for them under FR-3.13, and they stay queued on
+   * S-05 until set. Attendance capture cannot resolve a work date for a
+   * crossing shift, or flag a duplicate punch, until they are.
+   */
 };
 
 const teams = [
@@ -269,7 +280,6 @@ const shifts = [
     requiredDailyMinutes: 540,
     graceMinutes: 30,
     timezone: 'Asia/Karachi',
-    crossesMidnight: true,
   },
   {
     key: 'NIGHT_PACIFIC',
@@ -279,7 +289,6 @@ const shifts = [
     requiredDailyMinutes: 540,
     graceMinutes: 30,
     timezone: 'America/Los_Angeles',
-    crossesMidnight: true,
   },
 ];
 
