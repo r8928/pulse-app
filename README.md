@@ -49,6 +49,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | User lifecycle: role, team, shift, tracked, login, tenures (`S-07`) | Done |
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
 | Audit records on every mutation | Done |
+| Audit log: paged, filterable, read only (`S-22`) | Done |
+| Mobile navigation drawer below `sm` | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture (`FR-4.x`) | Stub screen only |

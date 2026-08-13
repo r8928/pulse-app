@@ -461,19 +461,19 @@ The compositions every remaining screen assembles from the components above.
 - **Don't** render a blank grid where an `EmptyState` belongs.
 - **Don't** add a second radius. There is one, and it is 6px.
 
-### Known gap · `P4`
+### Closed gap · `P4`
 
-The shell has no mobile treatment: `AppShell` renders a `variant='permanent'`
-drawer at every width. Under the desktop → mobile → tablet priority this is
-correct for the primary case and outstanding for the second — a `temporary`
-drawer below `sm` is required work, not a design decision still open.
+The shell now carries its mobile treatment. `AppShell` renders a
+`variant='permanent'` drawer at `sm` and above and a `variant='temporary'` one
+below it, behind a menu button in the `AppBar`. Both are built from a single
+`visibleNavigation` result, so an `S-19` permission edit reaches the phone and
+the desktop together and the two can never drift.
 
-**This is the only remaining work in this document, and it is Phase 4** (see
-`spec.md` §2.3 for the tags and `ARCHITECTURE.md` §32.1 for the map). It goes
-early because every screen built in Phases 4 to 6 inherits the shell: fixing it
-afterwards means re-checking twenty-one screens instead of zero.
+Under the desktop → mobile → tablet priority the permanent drawer stays the
+primary case and carries no toggle. The tablet case is served by the same
+`sm` boundary.
 
-Everything else here — the palette, the type scale, the four token surfaces,
+**This document now has no outstanding work.** Everything here — the palette, the type scale, the four token surfaces,
 the component variants and the screen archetypes — is delivered and carries no
 phase. `ARCHITECTURE.md`'s header says it plainly: **do not change this
 document while building.** A design-token edit that lands mid-phase breaks

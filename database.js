@@ -3129,6 +3129,89 @@ export async function upsertSeedUser(user, companyId = DEFAULT_COMPANY_ID) {
 
 // --- Audit reads -----------------------------------------------------------
 
+/**
+ * S-22. Every change ever made, paged and filterable.
+ *
+ * Read only without exception (`FR-9.3`): there is no update or delete
+ * function for this collection anywhere in this file, and none may be added.
+ * That is what makes the guarantee real rather than a convention — the screen
+ * offers no edit because no code path exists for one.
+ *
+ * Paged rather than materialised (`NFR-3`, `DC-10`): the log grows without
+ * limit and is never truncated. `_id` breaks the tie on `at`, because two
+ * records written in the same millisecond would otherwise be free to repeat on
+ * one page and vanish from the next.
+ */
+export async function listAuditRecords({
+  actorId = null,
+  actorName = null,
+  action = null,
+  entityType = null,
+  entityId = null,
+  from = null,
+  to = null,
+  page = 1,
+  pageSize = 50,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+
+  const filter = { companyId };
+  if (actorId) filter.actorId = actorId;
+  if (action) filter.action = action;
+
+  // A reader looking for "who did this" knows a name, not an id. The pattern is
+  // escaped, because an actor name is user-supplied and a stray `(` would
+  // otherwise throw rather than match nothing.
+  if (actorName?.trim()) {
+    filter.actorName = new RegExp(
+      actorName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+      'i',
+    );
+  }
+  if (entityType) filter.entityType = entityType;
+  if (entityId) filter.entityId = String(entityId);
+
+  // The filter is a pair of calendar dates; the field is an instant. `to` is
+  // inclusive of its whole day, which is what a reader picking one date means.
+  if (from || to) {
+    filter.at = {};
+    if (from) filter.at.$gte = new Date(`${from}T00:00:00.000Z`);
+    if (to) filter.at.$lte = new Date(`${to}T23:59:59.999Z`);
+  }
+
+  const collection = db.collection(COLLECTIONS.AUDIT_RECORDS);
+  const [items, total] = await Promise.all([
+    collection
+      .find(filter)
+      .sort({ at: -1, _id: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    collection.countDocuments(filter),
+  ]);
+
+  return { items, total, page, pageSize };
+}
+
+/**
+ * The values `S-22`'s filters offer, taken from what is actually in the log.
+ *
+ * Derived rather than listed, because every phase adds its own actions and a
+ * hardcoded list would silently fall behind the mutations that write them.
+ */
+export async function listAuditActions(companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.AUDIT_RECORDS);
+
+  const [actions, entityTypes] = await Promise.all([
+    collection.distinct('action', { companyId }),
+    collection.distinct('entityType', { companyId }),
+  ]);
+
+  return { actions: actions.sort(), entityTypes: entityTypes.sort() };
+}
+
 /** FR-9.4: the full change history of a single record, for P-45. */
 export async function getRecordHistory(
   entityType,

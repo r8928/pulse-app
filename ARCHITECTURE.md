@@ -1853,8 +1853,14 @@ from.
 
 ## 31 M-9 · Audit
 
-**Phase:** `P4` — the read surface plus `P-45`. Writing is `✔+`: the mechanism
-is built and every later phase extends it to its own entities.
+**Phase:** `P4` — **delivered**, Phase 4 branch 4. Writing is `✔+`: the
+mechanism was already built and every later phase extends it to its own
+entities.
+
+`S-22` pages and filters on actor, action, entity type and date range, with the
+filters held in the URL so a filtered view is a link. `P-44` and `P-45` share
+one component, because a single record and a record's whole history differ only
+in how many rows they show.
 **Screen:** `S-22` · **Popup:** `P-44`
 
 Mostly already satisfied — `writeAuditRecord` and `getRecordHistory` exist and
