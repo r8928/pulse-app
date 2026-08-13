@@ -10,6 +10,8 @@ import {
   COLLECTIONS,
   ensureIndexes,
   getPermissionGrants,
+  getSeedIdsByKey,
+  migrateLegacyTeamKeys,
   upsertSeed,
   upsertSeedUser,
 } from '../database.js';
@@ -227,6 +229,15 @@ const basePolicy = {
    */
 };
 
+/**
+ * `key` is this script's idempotency key and nothing else. Teams and shifts
+ * carry ordinary ObjectId identity, and every child document references that
+ * id — a key is never a foreign key, and is null for anything an administrator
+ * creates in the application.
+ *
+ * `defaultShiftKey` is resolved to a real `defaultShiftId` in the second pass
+ * below, once the shifts exist and their ids can be read back.
+ */
 const teams = [
   { key: 'GENERAL', name: 'General', defaultShiftKey: 'DAY_0900' },
   {
@@ -245,6 +256,17 @@ const teams = [
 ];
 
 /**
+ * FR-3.1 requires exactly one manager per team, and `spec.md` names one for
+ * exactly one team: Marcus Adeyemi runs GC (BR-3's night support).
+ *
+ * The other three are left **unset on purpose** (design record D-5). Inventing
+ * three managers would dress a guess up as an org fact, which `DC-6` forbids,
+ * and would hide the FR-3.13 missing-configuration path until Phase 6. S-17
+ * flags each of them inline instead.
+ */
+const teamManagerEmployeeCodes = { GC: 'GC-001' };
+
+/**
  * FR-3.10 and DC-5: there is no company-wide default timezone. Every shift
  * carries its own, and every timestamp resolves through the shift that applies
  * to that user on that date.
@@ -255,6 +277,7 @@ const teams = [
  */
 const shifts = [
   {
+    teamKey: 'GENERAL',
     key: 'DAY_0900',
     name: 'Day 09:00 to 18:00',
     startTime: '09:00',
@@ -264,6 +287,7 @@ const shifts = [
     timezone: 'Asia/Karachi',
   },
   {
+    teamKey: 'PRODUCT_OWNERS',
     key: 'DAY_1000',
     name: 'Day 10:00 to 19:00',
     startTime: '10:00',
@@ -273,6 +297,7 @@ const shifts = [
     timezone: 'Asia/Karachi',
   },
   {
+    teamKey: 'GC',
     key: 'NIGHT_GC',
     name: 'GC night 19:00 to 04:00',
     startTime: '19:00',
@@ -282,6 +307,7 @@ const shifts = [
     timezone: 'Asia/Karachi',
   },
   {
+    teamKey: 'SALES_MARKETING',
     key: 'NIGHT_PACIFIC',
     name: 'Sales and Marketing night, US Pacific',
     startTime: '19:00',
@@ -423,6 +449,27 @@ const demoUsers = [
 ];
 
 async function seed() {
+  /**
+   * Teams come first and indexes second, because the unique index on
+   * `(companyId, teamId)` cannot build while documents written by an earlier
+   * seed still share a null one. Those rows are repaired, never deleted.
+   */
+  console.warn('Seeding teams...');
+  await upsertSeed(
+    COLLECTIONS.TEAMS,
+    teams.map((team) => ({ key: team.key, name: team.name })),
+    ['key'],
+  );
+
+  const teamIdByKey = await getSeedIdsByKey(COLLECTIONS.TEAMS);
+
+  const { migrated } = await migrateLegacyTeamKeys(teamIdByKey);
+  if (migrated > 0) {
+    console.warn(
+      `Repaired ${migrated} documents that still carried the old teamKey.`,
+    );
+  }
+
   console.warn('Ensuring indexes...');
   await ensureIndexes();
 
@@ -447,23 +494,88 @@ async function seed() {
     ['name'],
   );
 
-  console.warn('Seeding teams, shifts, calendars and policy...');
-  await upsertSeed(COLLECTIONS.TEAMS, teams, ['key']);
-  await upsertSeed(COLLECTIONS.SHIFTS, shifts, ['key']);
-  await upsertSeed(COLLECTIONS.HOLIDAYS, holidays, ['teamKey', 'date']);
-  await upsertSeed(COLLECTIONS.WEEKLY_OFF_PATTERNS, weeklyOffPatterns, [
-    'teamKey',
-  ]);
+  /**
+   * Two passes, because teams and shifts carry ObjectId identity and every
+   * child document references that id rather than a key string.
+   *
+   *   1. upsert teams        → read their ids back
+   *   2. upsert shifts with a real teamId → read their ids back
+   *   3. stamp each team's defaultShiftId, then everything else
+   *
+   * Without this, `user.teamId` is never set and TEAM-scoped permissions reach
+   * no record at all.
+   */
+  console.warn('Seeding shifts...');
+  await upsertSeed(
+    COLLECTIONS.SHIFTS,
+    shifts.map(({ teamKey, ...shift }) => ({
+      ...shift,
+      teamId: teamIdByKey[teamKey],
+    })),
+    ['key'],
+  );
+
+  const shiftIdByKey = await getSeedIdsByKey(COLLECTIONS.SHIFTS);
+
+  console.warn('Seeding calendars, patterns and policy...');
+  await upsertSeed(
+    COLLECTIONS.TEAMS,
+    teams.map((team) => ({
+      key: team.key,
+      name: team.name,
+      defaultShiftId: shiftIdByKey[team.defaultShiftKey],
+    })),
+    ['key'],
+  );
+
+  await upsertSeed(
+    COLLECTIONS.HOLIDAYS,
+    holidays.map(({ teamKey, ...holiday }) => ({
+      ...holiday,
+      teamId: teamIdByKey[teamKey],
+    })),
+    ['teamId', 'date'],
+  );
+
+  await upsertSeed(
+    COLLECTIONS.WEEKLY_OFF_PATTERNS,
+    weeklyOffPatterns.map(({ teamKey, ...pattern }) => ({
+      ...pattern,
+      teamId: teamIdByKey[teamKey],
+    })),
+    ['teamId'],
+  );
+
   await upsertSeed(
     COLLECTIONS.TEAM_POLICY,
-    teams.map((team) => ({ teamKey: team.key, ...basePolicy })),
-    ['teamKey'],
+    teams.map((team) => ({ teamId: teamIdByKey[team.key], ...basePolicy })),
+    ['teamId'],
   );
 
   console.warn('Seeding demo users...');
-  for (const user of demoUsers) {
-    await upsertSeedUser(user);
+  const usersByCode = {};
+  for (const { teamKey, ...user } of demoUsers) {
+    // FR-3.4: a user with no shift of their own takes their team's default.
+    const created = await upsertSeedUser({
+      ...user,
+      teamId: teamIdByKey[teamKey],
+      shiftId:
+        shiftIdByKey[
+          teams.find((team) => team.key === teamKey).defaultShiftKey
+        ],
+    });
+    usersByCode[user.employeeCode] = String(created._id);
   }
+
+  // FR-3.1, and only where spec.md actually names one (design record D-5).
+  await upsertSeed(
+    COLLECTIONS.TEAMS,
+    Object.entries(teamManagerEmployeeCodes).map(([teamKey, code]) => ({
+      key: teamKey,
+      managerId: usersByCode[code],
+    })),
+    ['key'],
+  );
 
   const grants = await getPermissionGrants();
   console.warn(

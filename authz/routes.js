@@ -89,6 +89,22 @@ const ROUTE_RULES = [
     pattern: /^\/api\/permission-grants$/,
     permission: PERMISSIONS.PERMISSION_WRITE,
   },
+
+  // M-6. The path gates on team.read; the handlers assert team.write to change
+  // a team and config.write to change anything inside one.
+  {
+    pattern: /^\/api\/teams\/[^/]+\/(soft-delete|policy|weekly-off)$/,
+    permission: PERMISSIONS.TEAM_READ,
+  },
+  { pattern: /^\/api\/teams(\/[^/]+)?$/, permission: PERMISSIONS.TEAM_READ },
+  {
+    pattern: /^\/api\/(shifts|holidays)\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  {
+    pattern: /^\/api\/(shifts|holidays)(\/[^/]+)?$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
 ];
 
 /** Trailing slashes are cosmetic; they must not decide access. */

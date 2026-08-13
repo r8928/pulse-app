@@ -3,11 +3,13 @@ import { z } from 'zod';
 import {
   ALL_PERMISSIONS,
   APPROVAL_STATUS,
+  HOLIDAY_TYPE,
   RESTORE_CASE,
   ROLES,
   SCOPES,
 } from './constants/index.js';
 import { deriveEmploymentDates } from './utils/employment.js';
+import { missingConfiguration } from './utils/policyCompleteness.js';
 
 /**
  * Every MongoDB query in Pulse. Nothing in `page.js`, an API route, or a
@@ -172,6 +174,97 @@ export const restoreUserSchema = z
     { message: 'A re-hire requires a start date for the new tenure' },
   );
 
+/**
+ * FR-3.1 and FR-3.2. A team is company-wide configuration with exactly one
+ * manager. Both the manager and the default shift may be unset while the team
+ * is being set up — `policyCompleteness` flags each until they are, rather
+ * than either being guessed (`DC-6`, design record D-5).
+ */
+export const teamSchema = z.object({
+  name: z.string().trim().min(1, 'A name is required'),
+  managerId: z.string().nullable().optional(),
+  defaultShiftId: z.string().nullable().optional(),
+});
+
+/** A 24-hour clock time. A shift ending before it starts crosses midnight. */
+const clockTime = z
+  .string()
+  .regex(
+    /^([01]\d|2[0-3]):[0-5]\d$/,
+    'Enter a time as HH:MM on a 24-hour clock',
+  );
+
+/**
+ * FR-3.3 and FR-3.4. Named shifts are per team, and the timezone is required
+ * because there is no company-wide default to fall back on (FR-3.10, DC-5).
+ */
+export const shiftSchema = z.object({
+  teamId: z.string().min(1, 'A shift belongs to a team'),
+  name: z.string().trim().min(1, 'A name is required'),
+  startTime: clockTime,
+  endTime: clockTime,
+  requiredDailyMinutes: z
+    .number()
+    .int()
+    .positive('Enter the required duration'),
+  graceMinutes: z.number().int().min(0, 'Grace cannot be negative'),
+  timezone: z
+    .string()
+    .trim()
+    .min(1, 'A timezone is required — there is no company-wide default'),
+});
+
+/** FR-3.7. Typed, so nothing about a calendar depends on formatting or colour. */
+export const holidaySchema = z.object({
+  teamId: z.string().min(1, 'A holiday belongs to a team'),
+  date: isoDate,
+  name: z.string().trim().min(1, 'A name is required'),
+  type: z.enum(Object.values(HOLIDAY_TYPE)),
+});
+
+/**
+ * FR-3.8. Sunday is 0 through Saturday 6, matching `Date#getDay`. An empty
+ * list is a real answer — a team that works every day — so it is accepted.
+ */
+export const weeklyOffPatternSchema = z.object({
+  daysOfWeek: z
+    .array(z.number().int().min(0).max(6, 'A day of week runs 0 to 6'))
+    .refine((days) => new Set(days).size === days.length, {
+      message: 'A day cannot be listed twice',
+    }),
+});
+
+/**
+ * FR-6.4, the per-team half. Every field is optional because a policy is built
+ * up tab by tab on S-17 and `policyCompleteness` reports what is still
+ * outstanding — an unset value is prompted for, never defaulted (`DC-6`).
+ */
+const percentage = z.number().min(0).max(100);
+
+export const teamPolicySchema = z.object({
+  leaveTypes: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1),
+        annualEntitlement: z.number().min(0),
+        consumesStandardBalance: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  accrualPeriod: z.string().trim().min(1).optional(),
+  carryForward: z.boolean().optional(),
+  automaticDeductionLeaveType: z.string().trim().min(1).optional(),
+  leaveDeductionLadder: z.array(z.object({}).loose()).optional(),
+  ptoAwardLadder: z.array(z.object({}).loose()).optional(),
+  ptoValidityDays: z.number().int().min(0).optional(),
+  ctoApplicationLadder: z.array(z.object({}).loose()).optional(),
+  wfhQuotaDaysPerMonth: z.number().min(0).optional(),
+  shortDayThresholdPercent: percentage.optional(),
+  holidayWorkThresholdPercent: percentage.optional(),
+  midnightCrossingWindowHours: z.number().min(0).max(24).optional(),
+  duplicatePunchWindowMinutes: z.number().min(0).optional(),
+});
+
 /** FR-2.6: employment types are company-wide configuration, not an enum. */
 export const employmentTypeSchema = z.object({
   name: z.string().trim().min(1, 'A name is required'),
@@ -274,6 +367,41 @@ export async function ensureIndexes() {
   await db
     .collection(COLLECTIONS.EMPLOYMENT_TYPES)
     .createIndexes([{ key: { companyId: 1, name: 1 }, unique: true }]);
+
+  await db.collection(COLLECTIONS.TEAMS).createIndexes([
+    /**
+     * `key` is the seed's idempotency key and nothing else — it is null for
+     * every team an administrator creates, which is why the index is partial.
+     * Teams are referenced by `_id` everywhere; a key is never a foreign key.
+     */
+    {
+      key: { companyId: 1, key: 1 },
+      unique: true,
+      partialFilterExpression: { key: { $type: 'string' } },
+    },
+    { key: { companyId: 1, deletedAt: 1, name: 1 } },
+  ]);
+
+  await db.collection(COLLECTIONS.SHIFTS).createIndexes([
+    {
+      key: { companyId: 1, key: 1 },
+      unique: true,
+      partialFilterExpression: { key: { $type: 'string' } },
+    },
+    { key: { companyId: 1, teamId: 1, deletedAt: 1 } },
+  ]);
+
+  await db
+    .collection(COLLECTIONS.HOLIDAYS)
+    .createIndexes([{ key: { companyId: 1, teamId: 1, date: 1 } }]);
+
+  await db
+    .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
+    .createIndexes([{ key: { companyId: 1, teamId: 1 }, unique: true }]);
+
+  await db
+    .collection(COLLECTIONS.TEAM_POLICY)
+    .createIndexes([{ key: { companyId: 1, teamId: 1 }, unique: true }]);
 
   await db
     .collection(COLLECTIONS.AUDIT_RECORDS)
@@ -817,6 +945,820 @@ export async function listPendingApprovals(companyId = DEFAULT_COMPANY_ID) {
     .toArray();
 }
 
+// --- Teams -----------------------------------------------------------------
+
+/**
+ * S-16. Each team with its manager, its default shift and how many people are
+ * in it.
+ *
+ * The member count comes from the users assigned to the team, and excludes
+ * soft-deleted ones: a count is a total, and totals exclude while rosters
+ * include (`FR-2.4`).
+ *
+ * FR-3.2: a soft-deleted team stays readable, so past day records still
+ * resolve through the calendar and policy it held. It is dropped from the
+ * default list only because it is no longer offered for assignment.
+ */
+export async function listTeams({
+  includeDeleted = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const match = { companyId };
+  if (!includeDeleted) match.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.TEAMS)
+    .aggregate([
+      { $match: match },
+      { $sort: { name: 1, _id: 1 } },
+      {
+        $lookup: {
+          from: COLLECTIONS.USERS,
+          let: { teamId: { $toString: '$_id' } },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$teamId', '$$teamId'] },
+                companyId,
+                deletedAt: null,
+              },
+            },
+            { $count: 'count' },
+          ],
+          as: 'members',
+        },
+      },
+      {
+        $lookup: {
+          from: COLLECTIONS.USERS,
+          let: { managerId: '$managerId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: [{ $toString: '$_id' }, '$$managerId'] },
+                companyId,
+              },
+            },
+            { $project: { fullName: 1 } },
+          ],
+          as: 'manager',
+        },
+      },
+      {
+        $lookup: {
+          from: COLLECTIONS.SHIFTS,
+          let: { shiftId: '$defaultShiftId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: [{ $toString: '$_id' }, '$$shiftId'] },
+                companyId,
+              },
+            },
+            { $project: { name: 1 } },
+          ],
+          as: 'defaultShift',
+        },
+      },
+      {
+        $addFields: {
+          memberCount: { $ifNull: [{ $first: '$members.count' }, 0] },
+          managerName: { $first: '$manager.fullName' },
+          defaultShiftName: { $first: '$defaultShift.name' },
+        },
+      },
+      { $project: { members: 0, manager: 0, defaultShift: 0 } },
+    ])
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function getTeamById(id, companyId = DEFAULT_COMPANY_ID) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.TEAMS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+/**
+ * Two teams of the same name are indistinguishable on every screen that offers
+ * one, so a live duplicate is refused. This is checked here rather than by a
+ * unique index because a soft-deleted team keeps its name forever, and that
+ * must not stop the name being used again (`FR-3.2` keeps it readable, not
+ * reserved).
+ */
+async function assertTeamNameFree(name, exceptId, companyId) {
+  const db = await getDb();
+  const clash = await db.collection(COLLECTIONS.TEAMS).findOne({
+    companyId,
+    name,
+    deletedAt: null,
+    ...(exceptId ? { _id: { $ne: new ObjectId(exceptId) } } : {}),
+  });
+
+  if (clash) {
+    throw new ValidationError(`A team named ${name} already exists.`);
+  }
+}
+
+/**
+ * FR-1.7 and FR-3.1. A team's manager holds the MANAGER role, so naming one
+ * promotes them in the same operation and "exactly one manager" holds before
+ * and after — whichever screen set it.
+ *
+ * The outgoing manager keeps their role: they may manage another team, and
+ * demoting somebody silently is a decision, not a side effect. P-10 is where a
+ * role is deliberately changed.
+ */
+async function promoteToManager(userId, actor, companyId) {
+  if (!userId || !ObjectId.isValid(userId)) return;
+
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.USERS)
+    .findOne({ _id: new ObjectId(userId), companyId });
+
+  if (!before || before.role === ROLES.MANAGER) return;
+
+  const after = await db.collection(COLLECTIONS.USERS).findOneAndUpdate(
+    { _id: new ObjectId(userId), companyId },
+    {
+      $set: {
+        role: ROLES.MANAGER,
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    { returnDocument: 'after' },
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'USER_ROLE_CHANGED',
+    entityType: 'user',
+    entityId: userId,
+    before,
+    after,
+    reason: 'Named as the manager of a team (FR-1.7, FR-3.1).',
+    companyId,
+  });
+}
+
+export async function createTeam(input, actor, companyId = DEFAULT_COMPANY_ID) {
+  const data = parse(teamSchema, input);
+  await assertTeamNameFree(data.name, null, companyId);
+
+  const db = await getDb();
+  const now = new Date();
+
+  const doc = {
+    name: data.name,
+    key: null,
+    managerId: data.managerId ?? null,
+    defaultShiftId: data.defaultShiftId ?? null,
+    companyId,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+    updatedAt: now,
+    updatedBy: actor.userId,
+  };
+
+  const { insertedId } = await db.collection(COLLECTIONS.TEAMS).insertOne(doc);
+  await promoteToManager(doc.managerId, actor, companyId);
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TEAM_CREATED',
+    entityType: 'team',
+    entityId: insertedId,
+    after: doc,
+    companyId,
+  });
+
+  return { ...doc, _id: insertedId };
+}
+
+export async function updateTeam(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const before = await getTeamById(id, companyId);
+  if (!before) return null;
+
+  const data = parse(teamSchema.partial(), patch);
+  if (data.name) await assertTeamNameFree(data.name, id, companyId);
+
+  const after = await updateWithVersion(
+    COLLECTIONS.TEAMS,
+    id,
+    version,
+    {
+      $set: { ...data, updatedAt: new Date(), updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  if (data.managerId && data.managerId !== before.managerId) {
+    await promoteToManager(data.managerId, actor, companyId);
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TEAM_UPDATED',
+    entityType: 'team',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * FR-3.2. Refused while any user who is not soft deleted is still assigned,
+ * naming those users so they can be **moved** first — moved, not deleted. A
+ * team with only past assignments may go.
+ *
+ * The team is never destroyed (`I-1`): it stays readable so historical day
+ * records still resolve through the calendar, weekly off pattern and policy it
+ * held, and is simply no longer offered for assignment.
+ */
+export async function softDeleteTeam(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+  const before = await getTeamById(id, companyId);
+  if (!before) return null;
+
+  const db = await getDb();
+  const assigned = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, teamId: id, deletedAt: null })
+    .project({ fullName: 1 })
+    .limit(10)
+    .toArray();
+
+  if (assigned.length > 0) {
+    throw new ValidationError(
+      `${before.name} still has ${assigned
+        .map((member) => member.fullName)
+        .join(
+          ', ',
+        )} assigned to it. Move them to another team first — soft deleting the team does not move or remove anybody.`,
+    );
+  }
+
+  const now = new Date();
+  const after = await updateWithVersion(
+    COLLECTIONS.TEAMS,
+    id,
+    version,
+    {
+      $set: { deletedAt: now, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TEAM_SOFT_DELETED',
+    entityType: 'team',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Per-team configuration ------------------------------------------------
+
+/**
+ * The shared shape of every per-team record: created with a version, soft
+ * deleted rather than destroyed, and audited on every change.
+ *
+ * Extracted because shifts and holidays would otherwise be the same forty
+ * lines twice, and the third such record would make it three.
+ */
+async function createOwnedRecord(
+  collectionName,
+  { data, action, entityType, companyId, actor },
+) {
+  const db = await getDb();
+  const now = new Date();
+
+  const doc = {
+    ...data,
+    companyId,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+    updatedAt: now,
+    updatedBy: actor.userId,
+  };
+
+  const { insertedId } = await db.collection(collectionName).insertOne(doc);
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action,
+    entityType,
+    entityId: insertedId,
+    after: doc,
+    companyId,
+  });
+
+  return { ...doc, _id: insertedId };
+}
+
+async function softDeleteOwnedRecord(
+  collectionName,
+  { id, reason, version, action, entityType, companyId, actor },
+) {
+  const db = await getDb();
+  const before = await db
+    .collection(collectionName)
+    .findOne({ _id: new ObjectId(id), companyId });
+
+  if (!before) return null;
+
+  const now = new Date();
+  const after = await updateWithVersion(
+    collectionName,
+    id,
+    version,
+    {
+      $set: { deletedAt: now, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action,
+    entityType,
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Shifts ----------------------------------------------------------------
+
+/** FR-3.3: shifts are per team configuration, not a global list. */
+export async function listShifts(
+  teamId,
+  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  const filter = { companyId, teamId };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.SHIFTS)
+    .find(filter)
+    .sort({ startTime: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function createShift(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return createOwnedRecord(COLLECTIONS.SHIFTS, {
+    data: { ...parse(shiftSchema, input), key: null },
+    action: 'SHIFT_CREATED',
+    entityType: 'shift',
+    companyId,
+    actor,
+  });
+}
+
+export async function updateShift(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.SHIFTS)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const data = parse(shiftSchema.partial(), patch);
+
+  const after = await updateWithVersion(
+    COLLECTIONS.SHIFTS,
+    id,
+    version,
+    {
+      $set: { ...data, updatedAt: new Date(), updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'SHIFT_UPDATED',
+    entityType: 'shift',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * FR-3.4: refused while it is the team's default. A user holding no shift of
+ * their own takes that default, so removing it under them would leave the team
+ * unable to classify a day at all — and `DC-6` forbids falling back to another.
+ */
+export async function softDeleteShift(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.SHIFTS)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const defaultFor = await db
+    .collection(COLLECTIONS.TEAMS)
+    .findOne({ companyId, defaultShiftId: id, deletedAt: null });
+
+  if (defaultFor) {
+    throw new ValidationError(
+      `${before.name} is the default shift for ${defaultFor.name}. Point the team at another shift first — a user holding no shift of their own takes the default, and there is nothing to fall back to.`,
+    );
+  }
+
+  return softDeleteOwnedRecord(COLLECTIONS.SHIFTS, {
+    id,
+    reason: data.reason,
+    version,
+    action: 'SHIFT_SOFT_DELETED',
+    entityType: 'shift',
+    companyId,
+    actor,
+  });
+}
+
+// --- Holidays --------------------------------------------------------------
+
+/** FR-3.7: each team keeps its own calendar, so two observe different days. */
+export async function listHolidays(
+  teamId,
+  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  const filter = { companyId, teamId };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.HOLIDAYS)
+    .find(filter)
+    .sort({ date: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function createHoliday(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(holidaySchema, input);
+  const db = await getDb();
+
+  const clash = await db.collection(COLLECTIONS.HOLIDAYS).findOne({
+    companyId,
+    teamId: data.teamId,
+    date: data.date,
+    deletedAt: null,
+  });
+
+  if (clash) {
+    throw new ValidationError(
+      `This team already observes ${clash.name} on ${data.date}. Edit that entry rather than adding a second one.`,
+    );
+  }
+
+  return createOwnedRecord(COLLECTIONS.HOLIDAYS, {
+    data,
+    action: 'HOLIDAY_CREATED',
+    entityType: 'holiday',
+    companyId,
+    actor,
+  });
+}
+
+export async function updateHoliday(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.HOLIDAYS)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const data = parse(holidaySchema.partial(), patch);
+
+  const after = await updateWithVersion(
+    COLLECTIONS.HOLIDAYS,
+    id,
+    version,
+    {
+      $set: { ...data, updatedAt: new Date(), updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'HOLIDAY_UPDATED',
+    entityType: 'holiday',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+export async function softDeleteHoliday(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+
+  return softDeleteOwnedRecord(COLLECTIONS.HOLIDAYS, {
+    id,
+    reason: data.reason,
+    version,
+    action: 'HOLIDAY_SOFT_DELETED',
+    entityType: 'holiday',
+    companyId,
+    actor,
+  });
+}
+
+// --- Weekly off pattern ----------------------------------------------------
+
+export async function getWeeklyOffPattern(
+  teamId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
+    .findOne({ companyId, teamId });
+}
+
+/**
+ * FR-3.8. Exactly one pattern per team, replaced in place.
+ *
+ * `version` is null the first time, when the team has no pattern yet — the
+ * same shape `setPermissionGrant` uses for a cell with no row.
+ */
+export async function setWeeklyOffPattern(
+  teamId,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(weeklyOffPatternSchema, input);
+  const db = await getDb();
+  const now = new Date();
+  const before = await getWeeklyOffPattern(teamId, companyId);
+
+  let after;
+
+  if (!before) {
+    const doc = {
+      teamId,
+      daysOfWeek: data.daysOfWeek,
+      companyId,
+      version: 1,
+      createdAt: now,
+      createdBy: actor.userId,
+      updatedAt: now,
+      updatedBy: actor.userId,
+    };
+
+    const { insertedId } = await db
+      .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
+      .insertOne(doc);
+    after = { ...doc, _id: insertedId };
+  } else {
+    after = await updateWithVersion(
+      COLLECTIONS.WEEKLY_OFF_PATTERNS,
+      String(before._id),
+      version,
+      {
+        $set: {
+          daysOfWeek: data.daysOfWeek,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        },
+        $inc: { version: 1 },
+      },
+      companyId,
+    );
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'WEEKLY_OFF_PATTERN_SET',
+    entityType: 'weeklyOffPattern',
+    entityId: after._id,
+    before,
+    after,
+    reason: input.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Team policy -----------------------------------------------------------
+
+/**
+ * FR-6.4 and I-3. Every ladder, threshold and window the engine reads at
+ * calculation time. Absent until an administrator sets it — never defaulted.
+ */
+export async function getTeamPolicy(teamId, companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+  return db.collection(COLLECTIONS.TEAM_POLICY).findOne({ companyId, teamId });
+}
+
+export async function updateTeamPolicy(
+  teamId,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(teamPolicySchema, patch);
+  const db = await getDb();
+  const now = new Date();
+  const before = await getTeamPolicy(teamId, companyId);
+
+  let after;
+
+  if (!before) {
+    const doc = {
+      ...data,
+      teamId,
+      companyId,
+      version: 1,
+      createdAt: now,
+      createdBy: actor.userId,
+      updatedAt: now,
+      updatedBy: actor.userId,
+    };
+
+    const { insertedId } = await db
+      .collection(COLLECTIONS.TEAM_POLICY)
+      .insertOne(doc);
+    after = { ...doc, _id: insertedId };
+  } else {
+    after = await updateWithVersion(
+      COLLECTIONS.TEAM_POLICY,
+      String(before._id),
+      version,
+      {
+        $set: { ...data, updatedAt: now, updatedBy: actor.userId },
+        $inc: { version: 1 },
+      },
+      companyId,
+    );
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TEAM_POLICY_UPDATED',
+    entityType: 'teamPolicy',
+    entityId: after._id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * Everything S-17 renders, in one read: the team, its shifts, its calendar,
+ * its weekly off pattern, its policy, and every value still outstanding.
+ *
+ * The gaps come from `policyCompleteness`, which S-05 also calls in Phase 6 —
+ * so the inline flag on this screen and the queued exception can never
+ * disagree about whether a team is configured (`FR-3.13`).
+ */
+export async function getTeamConfiguration(
+  teamId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const team = await getTeamById(teamId, companyId);
+  if (!team) return null;
+
+  const [shifts, holidays, weeklyOffPattern, policy] = await Promise.all([
+    listShifts(teamId, { companyId }),
+    listHolidays(teamId, { companyId }),
+    getWeeklyOffPattern(teamId, companyId),
+    getTeamPolicy(teamId, companyId),
+  ]);
+
+  return {
+    team,
+    shifts: shifts.items,
+    holidays: holidays.items,
+    weeklyOffPattern,
+    policy,
+    gaps: missingConfiguration({
+      team,
+      shifts: shifts.items,
+      weeklyOffPattern,
+      policy,
+    }),
+  };
+}
+
 // --- Permission grants -----------------------------------------------------
 
 /**
@@ -1280,6 +2222,86 @@ export async function upsertSeed(
 }
 
 /**
+ * One-shot repair of documents written before teams carried ObjectId identity.
+ *
+ * Earlier seeds keyed holidays, weekly off patterns, policy and users on a
+ * `teamKey` string, while every consumer — `listUsers`, `session.js`,
+ * `recordInScope` — reads `teamId`. Nothing ever read `teamKey`, so those rows
+ * were inert: TEAM-scoped permissions reached no record and the roster's team
+ * filter matched nothing.
+ *
+ * This maps each one onto the real id rather than deleting it, so no
+ * configuration is destroyed (`I-1`). It must run **before** `ensureIndexes`,
+ * because the unique index on `(companyId, teamId)` cannot build while several
+ * rows still share a null one.
+ *
+ * Idempotent: after the first run no document carries `teamKey`, and it
+ * matches nothing.
+ */
+export async function migrateLegacyTeamKeys(
+  teamIdByKey,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const collections = [
+    COLLECTIONS.HOLIDAYS,
+    COLLECTIONS.WEEKLY_OFF_PATTERNS,
+    COLLECTIONS.TEAM_POLICY,
+    COLLECTIONS.USERS,
+  ];
+
+  let migrated = 0;
+
+  for (const name of collections) {
+    for (const [teamKey, teamId] of Object.entries(teamIdByKey)) {
+      const { modifiedCount } = await db
+        .collection(name)
+        .updateMany(
+          { companyId, teamKey },
+          { $set: { teamId }, $unset: { teamKey: '' } },
+        );
+
+      migrated += modifiedCount;
+    }
+
+    // A row whose key matches no current team keeps its data and loses only
+    // the dead field, so nothing silently disappears.
+    await db
+      .collection(name)
+      .updateMany(
+        { companyId, teamKey: { $type: 'string' } },
+        { $unset: { teamKey: '' } },
+      );
+  }
+
+  return { migrated };
+}
+
+/**
+ * Reads back the ids the seed just upserted, keyed on the natural key it
+ * upserted them by.
+ *
+ * This is what makes the seed's second pass possible: teams and shifts carry
+ * ordinary ObjectId identity, so every child document — users, holidays,
+ * weekly off patterns, policy — has to be stamped with the real id rather than
+ * a key string. `key` exists for this lookup and nothing else, and is null for
+ * anything an administrator creates in the application.
+ */
+export async function getSeedIdsByKey(
+  collectionName,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const docs = await db
+    .collection(collectionName)
+    .find({ companyId, key: { $type: 'string' } })
+    .project({ key: 1 })
+    .toArray();
+
+  return Object.fromEntries(docs.map((doc) => [doc.key, String(doc._id)]));
+}
+
+/**
  * Seeds a user together with their first tenure, keeping the two stored
  * employment dates in step with it (FR-2.12).
  *
@@ -1308,6 +2330,13 @@ export async function upsertSeedUser(user, companyId = DEFAULT_COMPANY_ID) {
         updatedAt: now,
       },
       $setOnInsert: { createdAt: now, version: 1 },
+      /**
+       * Earlier seeds stamped users with a `teamKey` string while every
+       * consumer — `listUsers`, `session.js`, `recordInScope` — reads
+       * `teamId`. Removing it here is what brings an existing dev database
+       * current without a migration script.
+       */
+      $unset: { teamKey: '' },
     },
     { upsert: true, returnDocument: 'after' },
   );

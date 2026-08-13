@@ -44,6 +44,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | People: roster, detail, create, soft delete, restore | Done |
 | Company config: employment types, authorised domains (`S-18`) | Done |
 | Access control matrix, effective next request (`S-19`) | Done |
+| Teams, with the manager and member count (`S-16`) | Done |
+| Team configuration: shifts, calendar, weekly off, policy, ladders (`S-17`) | Done |
 | Audit records on every mutation | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
@@ -95,6 +97,18 @@ real before and after to audit.
 **Policy is data.** Ladders, thresholds, entitlements and windows live in
 `teamPolicy`, not in `constants/`. If you are typing a number from §3.10 into a
 `.js` file, stop.
+
+**Teams and shifts are referenced by `_id`, never by `key`.** `key` is the
+seed's idempotency key and is null for anything created in the app.
+
+**Two per-team windows are unset on every team, on purpose.** `spec.md` gives
+no value for the midnight-crossing or duplicate-punch windows, so `S-17` asks
+rather than guessing. Three of the four seeded teams likewise have no manager.
+That is `DC-6` working, not a broken seed.
+
+**`recalculateDays` returns zero until Phase 5.** Its callers are real; the
+body is not. `database.js` must never import it — the engine imports
+`database.js`.
 
 **Dates go through `date-fns`.** No `new Date()` for parsing or arithmetic.
 

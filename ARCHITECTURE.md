@@ -1534,11 +1534,19 @@ and this section adds only what that document leaves to the implementer.
 
 ## 24 M-6 · Organisation and Policy
 
-**Phase:** `P4` — the whole module.
+**Phase:** `P4` — **delivered**, Phase 4 branch 2.
 **Screens:** `S-16` Teams · `S-17` Team configuration
 **Popups:** `P-28`–`P-39`
-**Build first.** Attendance cannot classify a day without a shift, a calendar
-and a weekly-off pattern.
+**Built first**, because attendance cannot classify a day without a shift, a
+calendar and a weekly-off pattern.
+
+**Identity was corrected in this branch.** Teams and shifts now carry ordinary
+`ObjectId` identity and every child document references it. The seed had keyed
+them on a natural string and stamped users with `teamKey`, while `listUsers`,
+`session.js` and `recordInScope` all read `teamId` — so no user had one,
+`TEAM`-scoped grants reached no record, and the roster's team filter matched
+nothing. `key` survives on `teams` and `shifts` as the seed's idempotency key
+only, `null` for anything created in the application, and never a foreign key.
 
 ### 24.1 What to build
 

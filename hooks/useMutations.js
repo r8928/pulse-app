@@ -74,5 +74,8 @@ export function useMutations() {
     dismissConflict: () => setConflict(null),
     post: (url, body) => run(() => send('POST', url, body)),
     patch: (url, body) => run(() => send('PATCH', url, body)),
+    // PUT is for the two records that are replaced whole rather than patched:
+    // a team's weekly off pattern and its policy document.
+    put: (url, body) => run(() => send('PUT', url, body)),
   };
 }
