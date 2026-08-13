@@ -154,9 +154,10 @@ scripts/seed.js     §3.10 configuration and demo roster
 **Built and working:** Google sign-in with five distinct rejections · the
 `FR-1.2` model end to end · all 22 screens routed and gated · People roster,
 detail, create, soft delete, restore, audited · `409` on stale writes ·
-100 tests.
+`S-18` company configuration and `S-19` access control matrix (§29, Phase 4
+branch 1) · 187 tests.
 
-**Stubs:** 21 screens render their documented tabs, columns and filters via
+**Stubs:** 19 screens render their documented tabs, columns and filters via
 `ScreenStub` and state that they are not implemented. Replacing a stub is the
 unit of work in Part III.
 
@@ -638,7 +639,7 @@ Write the test, **watch it fail for the right reason**, then implement.
 | Unit | Test | Environment |
 | ---- | ---- | ----------- |
 | Engine functions | Exhaustively — they are pure and take policy as an argument | node |
-| `database.js` | Valid input, invalid input → specific error, driver failure handled, one edge case. Mock the driver. | node |
+| `database.js` | Valid input, invalid input → specific error, driver failure handled, one edge case. **Against a real in-memory MongoDB** (`test/mongo.js`), never a mocked driver — a mock cannot fail a wrong filter, a missing `deletedAt: null`, a broken unique index or a stale-version check. Design record `D-6`. | node |
 | API routes | Request and response contract, both sides | node |
 | Components | State, variant, role, visibility, enabled/disabled | jsdom |
 | Design tokens | `app/__tests__/theme.test.js` **only** | node |
@@ -1781,10 +1782,18 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
 
 ## 29 M-7 · Config and access control
 
-**Phase:** `P4` — the whole module. It has no dependencies at all, so it can
-run in parallel with M-6.
+**Phase:** `P4` — **delivered**, Phase 4 branch 1. It had no dependencies at
+all, which is why it went first.
 **Screens:** `S-18` company configuration · `S-19` access control matrix
 **Popups:** `P-40`, `P-41`, `P-42`
+
+Two guards were added that `spec.md` implies without stating. Soft deleting an
+employment type is refused while any user who is not soft deleted still holds
+it, naming them — the `FR-3.2` rule for teams applied to the other company-wide
+list. Removing the **last** authorised domain is refused outright: `FR-1.5`
+admits a sign-in only from an authorised domain, so an empty list is not a
+configuration state but a lockout with no signed-in surface left to undo it
+from.
 
 ### 29.1 What to build
 

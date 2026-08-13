@@ -40,6 +40,17 @@ export class UnauthenticatedError extends Error {
   }
 }
 
+/**
+ * The record a company-wide configuration endpoint is asked about.
+ *
+ * Employment types, authorised domains and permission grants belong to no user
+ * and no team, so only a scope of ALL reaches them. FR-1.2 requires the record
+ * check even where the answer is structural rather than per-record — skipping
+ * it because "there is no record" is how the second half of the model gets
+ * quietly dropped.
+ */
+export const COMPANY_WIDE = Object.freeze({ userId: null, teamId: null });
+
 /** The signed-in user, or throws. */
 export async function requireActor() {
   const actor = await getSessionUser();

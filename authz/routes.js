@@ -62,6 +62,33 @@ const ROUTE_RULES = [
     pattern: /^\/api\/users\/[^/]+\/(soft-delete|restore)$/,
     permission: PERMISSIONS.USER_READ,
   },
+
+  // Company-wide configuration. The path gates on config.read; a POST or PATCH
+  // asserts config.write in the handler, because the permission a mutation
+  // needs depends on the method rather than the path.
+  {
+    pattern: /^\/api\/employment-types(\/[^/]+)?$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  {
+    pattern: /^\/api\/employment-types\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  {
+    pattern: /^\/api\/authorised-domains(\/[^/]+)?$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  {
+    pattern: /^\/api\/authorised-domains\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+
+  // Reading the matrix is as sensitive as writing it: it is the map of who can
+  // do what, and only the role that may edit it has any use for it.
+  {
+    pattern: /^\/api\/permission-grants$/,
+    permission: PERMISSIONS.PERMISSION_WRITE,
+  },
 ];
 
 /** Trailing slashes are cosmetic; they must not decide access. */

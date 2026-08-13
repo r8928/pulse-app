@@ -1,6 +1,12 @@
 import { MongoClient, ObjectId } from 'mongodb';
 import { z } from 'zod';
-import { APPROVAL_STATUS, RESTORE_CASE, ROLES } from './constants/index.js';
+import {
+  ALL_PERMISSIONS,
+  APPROVAL_STATUS,
+  RESTORE_CASE,
+  ROLES,
+  SCOPES,
+} from './constants/index.js';
 import { deriveEmploymentDates } from './utils/employment.js';
 
 /**
@@ -166,6 +172,46 @@ export const restoreUserSchema = z
     { message: 'A re-hire requires a start date for the new tenure' },
   );
 
+/** FR-2.6: employment types are company-wide configuration, not an enum. */
+export const employmentTypeSchema = z.object({
+  name: z.string().trim().min(1, 'A name is required'),
+});
+
+/**
+ * FR-1.5. A Workspace domain, not an email address — the likeliest mistake is
+ * pasting a whole address, which would authorise nobody and be hard to spot.
+ * A bare hostname is refused for the same reason: it can never be the domain
+ * half of a work email.
+ */
+export const authorisedDomainSchema = z.object({
+  domain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(
+      /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+      'Enter a domain such as example.com, not an email address',
+    ),
+});
+
+/**
+ * FR-1.2. One cell of the S-19 matrix.
+ *
+ * A null scope means the role holds the permission at no scope — a row, never
+ * a removed one (design record D-8), so nothing is destroyed and the change
+ * has a real before and after to audit.
+ */
+export const permissionGrantSchema = z.object({
+  role: z.enum(Object.values(ROLES)),
+  permission: z.enum(ALL_PERMISSIONS),
+  scope: z.enum(Object.values(SCOPES)).nullable(),
+});
+
+/** FR-4.10: every soft delete states its reason, recorded in the audit log. */
+export const reasonSchema = z.object({
+  reason: z.string().trim().min(1, 'A reason is required'),
+});
+
 const parse = (schema, input) => {
   const result = schema.safeParse(input);
   if (!result.success) {
@@ -173,6 +219,18 @@ const parse = (schema, input) => {
   }
   return result.data;
 };
+
+/**
+ * MongoDB reports a unique-index violation as error code 11000, which would
+ * otherwise reach `errorResponse` as an unknown error and become a 500. Every
+ * uniqueness rule in the spec requires the offending value to be *named* —
+ * FR-2.6 for an employee code, FR-3.2 for a team — so it is translated here
+ * into the same ValidationError a Zod failure produces.
+ */
+function rethrowDuplicateAs(error, message) {
+  if (error?.code === 11000) throw new ValidationError(message);
+  throw error;
+}
 
 // --- Indexes ---------------------------------------------------------------
 
@@ -210,6 +268,12 @@ export async function ensureIndexes() {
   await db
     .collection(COLLECTIONS.AUTHORISED_DOMAINS)
     .createIndexes([{ key: { companyId: 1, domain: 1 }, unique: true }]);
+
+  // FR-2.6: two employment types of the same name are indistinguishable on
+  // every screen that offers them, so the name is the natural key.
+  await db
+    .collection(COLLECTIONS.EMPLOYMENT_TYPES)
+    .createIndexes([{ key: { companyId: 1, name: 1 }, unique: true }]);
 
   await db
     .collection(COLLECTIONS.AUDIT_RECORDS)
@@ -751,6 +815,429 @@ export async function listPendingApprovals(companyId = DEFAULT_COMPANY_ID) {
     .find({ companyId, status: APPROVAL_STATUS.PENDING })
     .sort({ raisedAt: -1 })
     .toArray();
+}
+
+// --- Permission grants -----------------------------------------------------
+
+/**
+ * S-19's read surface: whole documents, because the matrix needs each row's
+ * version to write a cell back safely.
+ *
+ * `getPermissionGrants` above stays as it is — proxy.js and session.js call it
+ * on every single request and want the lean projection.
+ */
+export async function listPermissionGrants(companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+  const items = await db
+    .collection(COLLECTIONS.PERMISSION_GRANTS)
+    .find({ companyId })
+    .sort({ permission: 1, role: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+/**
+ * P-42. Sets the scope one role holds one permission at.
+ *
+ * FR-1.3 is NOT enforced here. It is a rule about the whole matrix —
+ * OFFICE_ADMIN's grants are a permanent superset — which no single cell can be
+ * checked against in isolation, so the caller validates the resulting set with
+ * `validateGrants` before calling in. Keeping that in the handler also keeps
+ * this file free of an authz import, per the Part I dependency rules.
+ *
+ * A cell with no row yet is created, and `version` is null in that case. The
+ * unique index on (companyId, role, permission) is what makes a concurrent
+ * first write fail rather than duplicate.
+ */
+export async function setPermissionGrant(
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(permissionGrantSchema, input);
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.PERMISSION_GRANTS);
+  const now = new Date();
+
+  const before = await collection.findOne({
+    companyId,
+    role: data.role,
+    permission: data.permission,
+  });
+
+  if (!before) {
+    const doc = {
+      ...data,
+      companyId,
+      version: 1,
+      createdAt: now,
+      createdBy: actor.userId,
+      updatedAt: now,
+      updatedBy: actor.userId,
+    };
+
+    let insertedId;
+    try {
+      ({ insertedId } = await collection.insertOne(doc));
+    } catch (error) {
+      rethrowDuplicateAs(
+        error,
+        'Another administrator changed this permission at the same moment. Reload to see the current state.',
+      );
+    }
+
+    await writeAuditRecord({
+      actorId: actor.userId,
+      actorName: actor.name,
+      action: 'PERMISSION_GRANT_CHANGED',
+      entityType: 'permissionGrant',
+      entityId: insertedId,
+      before: null,
+      after: doc,
+      reason: input.reason ?? null,
+      companyId,
+    });
+
+    return { ...doc, _id: insertedId };
+  }
+
+  const after = await updateWithVersion(
+    COLLECTIONS.PERMISSION_GRANTS,
+    String(before._id),
+    version,
+    {
+      $set: { scope: data.scope, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'PERMISSION_GRANT_CHANGED',
+    entityType: 'permissionGrant',
+    entityId: String(before._id),
+    before,
+    after,
+    reason: input.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Employment types ------------------------------------------------------
+
+/**
+ * FR-2.6 and FR-6.4. Company-wide configuration, editable at runtime.
+ *
+ * Unpaged deliberately: this list is bounded by configuration rather than by
+ * the roster, so NFR-3 does not apply to it. Every collection that grows with
+ * the roster pages.
+ */
+export async function listEmploymentTypes({
+  includeDeleted = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.EMPLOYMENT_TYPES)
+    .find(filter)
+    .sort({ name: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function createEmploymentType(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(employmentTypeSchema, input);
+  const db = await getDb();
+  const now = new Date();
+
+  const doc = {
+    ...data,
+    companyId,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+    updatedAt: now,
+    updatedBy: actor.userId,
+  };
+
+  let insertedId;
+  try {
+    ({ insertedId } = await db
+      .collection(COLLECTIONS.EMPLOYMENT_TYPES)
+      .insertOne(doc));
+  } catch (error) {
+    rethrowDuplicateAs(
+      error,
+      `An employment type named ${data.name} already exists.`,
+    );
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'EMPLOYMENT_TYPE_CREATED',
+    entityType: 'employmentType',
+    entityId: insertedId,
+    after: doc,
+    companyId,
+  });
+
+  return { ...doc, _id: insertedId };
+}
+
+export async function updateEmploymentType(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.EMPLOYMENT_TYPES);
+  const before = await collection.findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const data = parse(employmentTypeSchema, patch);
+
+  let after;
+  try {
+    after = await updateWithVersion(
+      COLLECTIONS.EMPLOYMENT_TYPES,
+      id,
+      version,
+      {
+        $set: { ...data, updatedAt: new Date(), updatedBy: actor.userId },
+        $inc: { version: 1 },
+      },
+      companyId,
+    );
+  } catch (error) {
+    rethrowDuplicateAs(
+      error,
+      `An employment type named ${data.name} already exists.`,
+    );
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'EMPLOYMENT_TYPE_UPDATED',
+    entityType: 'employmentType',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * Rejected while any user who is not soft deleted still holds it, naming those
+ * users so they can be moved first — the FR-3.2 rule for teams, applied to the
+ * other company-wide list. A type held only by departed users may go, because
+ * their records still resolve it by name.
+ */
+export async function softDeleteEmploymentType(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.EMPLOYMENT_TYPES);
+  const before = await collection.findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const holders = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, employmentType: before.name, deletedAt: null })
+    .project({ fullName: 1 })
+    .limit(10)
+    .toArray();
+
+  if (holders.length > 0) {
+    throw new ValidationError(
+      `${before.name} is still held by ${holders
+        .map((holder) => holder.fullName)
+        .join(
+          ', ',
+        )}. Move them to another employment type first — they are not deleted with it.`,
+    );
+  }
+
+  const now = new Date();
+  const after = await updateWithVersion(
+    COLLECTIONS.EMPLOYMENT_TYPES,
+    id,
+    version,
+    {
+      $set: { deletedAt: now, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'EMPLOYMENT_TYPE_SOFT_DELETED',
+    entityType: 'employmentType',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Authorised domains ----------------------------------------------------
+
+/**
+ * S-18's read surface: whole documents, so the screen can offer a versioned
+ * removal. `getAuthorisedDomains` above stays as it is — the sign-in path wants
+ * bare strings and must not pay for anything more.
+ */
+export async function listAuthorisedDomains({
+  includeDeleted = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.AUTHORISED_DOMAINS)
+    .find(filter)
+    .sort({ domain: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function createAuthorisedDomain(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(authorisedDomainSchema, input);
+  const db = await getDb();
+  const now = new Date();
+
+  const doc = {
+    ...data,
+    companyId,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+    updatedAt: now,
+    updatedBy: actor.userId,
+  };
+
+  let insertedId;
+  try {
+    ({ insertedId } = await db
+      .collection(COLLECTIONS.AUTHORISED_DOMAINS)
+      .insertOne(doc));
+  } catch (error) {
+    rethrowDuplicateAs(error, `${data.domain} is already authorised.`);
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'AUTHORISED_DOMAIN_ADDED',
+    entityType: 'authorisedDomain',
+    entityId: insertedId,
+    after: doc,
+    companyId,
+  });
+
+  return { ...doc, _id: insertedId };
+}
+
+/**
+ * Refused when it is the last one. FR-1.5 admits a sign-in only from an
+ * authorised domain, so an empty list is not a configuration state — it locks
+ * every user out, including the OFFICE_ADMIN who would have to undo it, and
+ * there is no signed-in surface left to undo it from.
+ */
+export async function softDeleteAuthorisedDomain(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.AUTHORISED_DOMAINS);
+  const before = await collection.findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const remaining = await collection.countDocuments({
+    companyId,
+    deletedAt: null,
+  });
+
+  if (remaining <= 1) {
+    throw new ValidationError(
+      `${before.domain} is the last authorised domain. Removing it would prevent every user from signing in, including you. Add the replacement first.`,
+    );
+  }
+
+  const now = new Date();
+  const after = await updateWithVersion(
+    COLLECTIONS.AUTHORISED_DOMAINS,
+    id,
+    version,
+    {
+      $set: { deletedAt: now, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'AUTHORISED_DOMAIN_REMOVED',
+    entityType: 'authorisedDomain',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
 }
 
 // --- Seeding ---------------------------------------------------------------

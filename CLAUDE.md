@@ -50,7 +50,7 @@
 
 ## Testing
 
-- Minimum unit-test coverage: valid input → expected output, invalid input → specific error, dependency failure → handled error, one edge case per unit. Mock AWS SDKs, network calls, databases, ConfigService env vars, and framework APIs.
+- Minimum unit-test coverage: valid input → expected output, invalid input → specific error, dependency failure → handled error, one edge case per unit. Mock AWS SDKs, network calls, ConfigService env vars, and framework APIs. **`database.js` is the exception**: it is tested against a real in-memory MongoDB via `test/mongo.js`, because a mocked driver cannot fail a wrong filter, a missing `deletedAt: null`, a broken unique index or a stale-version check. See `docs/superpowers/specs/2026-08-13-phase-4-design.md` `D-6`.
 - Test observable behavior, not implementation. Two failure smells: (1) a design-token-only change breaks an app test → the assertion belongs in `app/__tests__/theme.test.js`, not the app layer; assert state, variant, role, visibility, enabled/disabled instead. (2) A behavior-preserving refactor breaks a test → the test is brittle; fix or remove it. Never test SDK/framework internals, platform wiring, private methods, call order, or runtime-owned configuration.
 
 ## Responsive and Input Design
@@ -66,3 +66,13 @@
 ## User Interaction
 
 - When an answer, decision, or clarification is needed, ask via the AskUserQuestion tool and keep looping with follow-up rounds until every open point is resolved; DO NOT end a turn with questions posed only in prose.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

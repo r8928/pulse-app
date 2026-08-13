@@ -42,6 +42,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | `proxy.js` endpoint check, `guard.js` record check | Done |
 | App shell, all 22 screens routed and gated | Done |
 | People: roster, detail, create, soft delete, restore | Done |
+| Company config: employment types, authorised domains (`S-18`) | Done |
+| Access control matrix, effective next request (`S-19`) | Done |
 | Audit records on every mutation | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
@@ -78,7 +80,17 @@ it exists.
 **Soft delete only.** There is no hard-delete function in `database.js` and none
 may be added. Ledger entries are cancelled by a reversing entry, never edited.
 
-**Every query lives in `database.js`.** Including single-caller ones.
+**Every query lives in `database.js`.** Including single-caller ones. It is
+tested against a real in-memory MongoDB (`test/mongo.js`), not a mocked driver —
+a mock cannot fail a wrong filter or a missing `deletedAt: null`.
+
+**Removing the last authorised domain is refused.** `FR-1.5` admits a sign-in
+only from an authorised domain, so an empty list is a lockout with no signed-in
+surface left to undo it from. Add the replacement first.
+
+**A withheld permission is a row with a null scope, not a missing row.** Nothing
+is destroyed, the row keeps its version for the next edit, and the change has a
+real before and after to audit.
 
 **Policy is data.** Ladders, thresholds, entitlements and windows live in
 `teamPolicy`, not in `constants/`. If you are typing a number from §3.10 into a
@@ -101,6 +113,7 @@ database.js       every MongoDB query
 constants/        every domain enum
 authz/            check.js · routes.js · guard.js · signin.js
 utils/            employment.js · apiResponse.js
+test/             mongo.js — the in-memory database harness
 components/       shared UI; navigation.js is data-only
 hooks/            client-side business logic
 app/theme/        colors.js · theme.js · fonts.js
