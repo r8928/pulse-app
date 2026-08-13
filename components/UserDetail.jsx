@@ -19,7 +19,20 @@ import { RESTORE_CASE } from '../constants/index.js';
 import { useUserMutations } from '../hooks/useUserMutations.js';
 import { PageHeader } from './PageHeader.jsx';
 import { ReasonDialog } from './ReasonDialog.jsx';
+import { UserFormDialog } from './UserFormDialog.jsx';
 import { UserStatusChips } from './UserStatusChips.jsx';
+import {
+  AssignmentsPanel,
+  SHIFT_ASSIGNMENTS,
+  TEAM_ASSIGNMENTS,
+} from './user/AssignmentsPanel.jsx';
+import { TenuresPanel } from './user/TenuresPanel.jsx';
+import {
+  AssignShiftDialog,
+  ChangeRoleDialog,
+  MoveTeamDialog,
+  ToggleFlagDialog,
+} from './user/UserActionDialogs.jsx';
 
 const TABS = [
   'Overview',
@@ -30,6 +43,9 @@ const TABS = [
   'Leave and balances',
   'History',
 ];
+
+/** Tabs whose collections stay empty until the engine and ledger ship. */
+const NOT_YET = { 4: 'Attendance', 5: 'Leave and balances' };
 
 const FIELD_LABELS = [
   ['fullName', 'Full name'],
@@ -43,28 +59,52 @@ const FIELD_LABELS = [
 ];
 
 /**
- * S-07. One user's whole record.
+ * S-07. One user's whole record and history.
  *
- * Overview, Tenures and History are built; the remaining four tabs are named
- * so the shape of the screen is visible and say plainly that they are not
- * implemented.
+ * Role, team and shift are deliberately separate actions rather than fields on
+ * the edit form: `FR-2.1` gives `IT` the user's own attributes but reserves a
+ * role or team change for `OFFICE_ADMIN`, and each carries consequences an
+ * ordinary edit does not.
  */
-export function UserDetail({ user, history, canWrite }) {
+export function UserDetail({
+  user,
+  history,
+  teams,
+  shifts,
+  colleagues,
+  shiftAssignments,
+  teamAssignments,
+  canWrite,
+}) {
   const [tab, setTab] = useState(0);
-  const [softDeleteOpen, setSoftDeleteOpen] = useState(false);
-  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [dialog, setDialog] = useState(null);
   const [dateOfLeaving, setDateOfLeaving] = useState('');
   const [restoreCase, setRestoreCase] = useState(RESTORE_CASE.CORRECTION);
   const [rehireStart, setRehireStart] = useState('');
 
+  const mutations = useUserMutations();
   const {
+    updateUser,
     softDeleteUser,
     restoreUser,
+    changeRole,
+    moveTeam,
+    assignShift,
+    setFlag,
     pending,
     error,
     conflict,
     dismissConflict,
-  } = useUserMutations();
+  } = mutations;
+
+  const close = () => setDialog(null);
+  const open = (name) => () => setDialog(name);
+
+  const currentTeam = teams.find((team) => team._id === user.teamId);
+  const managesOutgoingTeam = currentTeam?.managerId === user._id;
+
+  const nameById = (list) => (id) =>
+    list.find((item) => item._id === id)?.name ?? null;
 
   return (
     <Stack spacing={3}>
@@ -74,19 +114,45 @@ export function UserDetail({ user, history, canWrite }) {
         meta={<UserStatusChips user={user} />}
         actions={
           canWrite ? (
-            user.deletedAt ? (
-              <Button variant='contained' onClick={() => setRestoreOpen(true)}>
-                Restore
-              </Button>
-            ) : (
-              <Button
-                variant='outlined'
-                color='error'
-                onClick={() => setSoftDeleteOpen(true)}
-              >
-                Soft delete
-              </Button>
-            )
+            <Stack
+              direction='row'
+              spacing={1}
+              sx={{ flexWrap: 'wrap', gap: 1 }}
+            >
+              {user.deletedAt ? (
+                <Button variant='contained' onClick={open('restore')}>
+                  Restore
+                </Button>
+              ) : (
+                <>
+                  <Button variant='contained' onClick={open('edit')}>
+                    Edit
+                  </Button>
+                  <Button variant='outlined' onClick={open('role')}>
+                    Change role
+                  </Button>
+                  <Button variant='outlined' onClick={open('team')}>
+                    Move team
+                  </Button>
+                  <Button variant='outlined' onClick={open('shift')}>
+                    Assign shift
+                  </Button>
+                  <Button variant='outlined' onClick={open('tracked')}>
+                    {user.tracked ? 'Stop tracking' : 'Start tracking'}
+                  </Button>
+                  <Button variant='outlined' onClick={open('login')}>
+                    {user.loginEnabled ? 'Disable login' : 'Enable login'}
+                  </Button>
+                  <Button
+                    variant='outlined'
+                    color='error'
+                    onClick={open('softDelete')}
+                  >
+                    Soft delete
+                  </Button>
+                </>
+              )}
+            </Stack>
           ) : null
         }
       />
@@ -99,7 +165,6 @@ export function UserDetail({ user, history, canWrite }) {
       ) : null}
 
       {conflict ? (
-        // P-47: two administrators on the same period is the normal case.
         <Alert severity='warning' onClose={dismissConflict}>
           This record changed since you loaded it, so your write was rejected
           rather than overwriting theirs. Reload to see the current state.
@@ -133,6 +198,21 @@ export function UserDetail({ user, history, canWrite }) {
               ))}
               <TableRow>
                 <TableCell>
+                  <Typography variant='bodyStrong'>Team</Typography>
+                </TableCell>
+                <TableCell>{currentTeam?.name ?? '—'}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell>
+                  <Typography variant='bodyStrong'>Shift</Typography>
+                </TableCell>
+                <TableCell>
+                  {shifts.find((shift) => shift._id === user.shiftId)?.name ??
+                    '—'}
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell>
                   <Typography variant='bodyStrong'>Tracked</Typography>
                 </TableCell>
                 <TableCell>{user.tracked ? 'Yes' : 'No'}</TableCell>
@@ -149,41 +229,45 @@ export function UserDetail({ user, history, canWrite }) {
       ) : null}
 
       {tab === 1 ? (
-        <Stack spacing={2}>
-          <Alert severity='info'>
-            The employment period is every tenure below added together, worked
-            out when needed and never stored. A date in a gap between two
-            tenures carries no day record, exception or deduction.
-          </Alert>
-          <Paper variant='outlined'>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Start</TableCell>
-                  <TableCell>End</TableCell>
-                  <TableCell>Status</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {user.tenures.map((tenure) => (
-                  <TableRow key={tenure._id}>
-                    <TableCell>
-                      <Typography variant='mono'>{tenure.startDate}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant='mono'>
-                        {tenure.endDate ?? '— open'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {tenure.deletedAt ? 'Soft deleted' : 'Active'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Paper>
-        </Stack>
+        <TenuresPanel user={user} canWrite={canWrite} mutations={mutations} />
+      ) : null}
+
+      {tab === 2 ? (
+        <AssignmentsPanel
+          {...SHIFT_ASSIGNMENTS}
+          assignments={shiftAssignments}
+          nameOf={(assignment) => nameById(shifts)(assignment.shiftId)}
+          action={
+            canWrite ? (
+              <Button variant='contained' onClick={open('shift')}>
+                Assign shift
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
+
+      {tab === 3 ? (
+        <AssignmentsPanel
+          {...TEAM_ASSIGNMENTS}
+          assignments={teamAssignments}
+          nameOf={(assignment) => nameById(teams)(assignment.teamId)}
+          action={
+            canWrite ? (
+              <Button variant='contained' onClick={open('team')}>
+                Move team
+              </Button>
+            ) : null
+          }
+        />
+      ) : null}
+
+      {NOT_YET[tab] ? (
+        <Alert severity='info'>
+          {NOT_YET[tab]} is not implemented yet. Its collections already exist
+          and stay empty until the calculation engine and the ledger ship, so it
+          needs no migration when it does.
+        </Alert>
       ) : null}
 
       {tab === 6 ? (
@@ -227,16 +311,73 @@ export function UserDetail({ user, history, canWrite }) {
         </Paper>
       ) : null}
 
-      {[2, 3, 4, 5].includes(tab) ? (
-        <Alert severity='info'>
-          {TABS[tab]} is not implemented yet. The collections behind it already
-          exist, so it needs no migration when it ships.
-        </Alert>
-      ) : null}
+      <UserFormDialog
+        open={dialog === 'edit'}
+        onClose={close}
+        onSubmit={(data) =>
+          updateUser(user._id, { ...data, version: user.version })
+        }
+        pending={pending}
+        error={error}
+        employmentTypes={[user.employmentType]}
+        initial={user}
+      />
+
+      <ChangeRoleDialog
+        open={dialog === 'role'}
+        onClose={close}
+        user={user}
+        teams={teams}
+        onConfirm={(data) => changeRole(user._id, data)}
+        pending={pending}
+        error={error}
+      />
+
+      <MoveTeamDialog
+        open={dialog === 'team'}
+        onClose={close}
+        user={user}
+        teams={teams.filter((team) => team._id !== user.teamId)}
+        colleagues={colleagues}
+        managesOutgoingTeam={managesOutgoingTeam}
+        onConfirm={(data) => moveTeam(user._id, data)}
+        pending={pending}
+        error={error}
+      />
+
+      <AssignShiftDialog
+        open={dialog === 'shift'}
+        onClose={close}
+        user={user}
+        shifts={shifts}
+        onConfirm={(data) => assignShift(user._id, data)}
+        pending={pending}
+        error={error}
+      />
+
+      <ToggleFlagDialog
+        open={dialog === 'tracked'}
+        onClose={close}
+        user={user}
+        field='tracked'
+        onConfirm={(data) => setFlag(user._id, data)}
+        pending={pending}
+        error={error}
+      />
+
+      <ToggleFlagDialog
+        open={dialog === 'login'}
+        onClose={close}
+        user={user}
+        field='loginEnabled'
+        onConfirm={(data) => setFlag(user._id, data)}
+        pending={pending}
+        error={error}
+      />
 
       <ReasonDialog
-        open={softDeleteOpen}
-        onClose={() => setSoftDeleteOpen(false)}
+        open={dialog === 'softDelete'}
+        onClose={close}
         onConfirm={(reason) =>
           softDeleteUser(user._id, {
             dateOfLeaving,
@@ -264,8 +405,8 @@ export function UserDetail({ user, history, canWrite }) {
       </ReasonDialog>
 
       <ReasonDialog
-        open={restoreOpen}
-        onClose={() => setRestoreOpen(false)}
+        open={dialog === 'restore'}
+        onClose={close}
         onConfirm={(reason) =>
           restoreUser(user._id, {
             restoreCase,

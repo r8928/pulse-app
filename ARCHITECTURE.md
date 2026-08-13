@@ -1754,9 +1754,14 @@ fixed by another route.
 
 ## 28 M-3 · People, the remainder
 
-**Phase:** `P4`, except item 5 — the `FR-2.11` employment-period reduction
-approval — which is `P6`, because it is an approval workflow that posts
-reversing ledger entries and neither exists before `P5`.
+**Phase:** `P4` — **delivered**, Phase 4 branch 3. The exception is item 5, the
+`FR-2.11` employment-period reduction approval, which stays `P6`: it is an
+approval workflow that posts reversing ledger entries, and neither exists
+before `P5`. Nothing can be stranded outside a period yet, because no punch,
+day record or ledger entry exists.
+
+`FR-3.14` is tagged `P5` while `P-11` is `P4`; the split is exactly the
+recalculation, so `P-11` ships whole here and calls the `D-4` seam.
 
 Roster, detail Overview/Tenures/History, create, soft delete and restore are
 **already built**. What remains:

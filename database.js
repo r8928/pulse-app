@@ -930,6 +930,780 @@ export async function restoreUser(
   return after;
 }
 
+// --- The user lifecycle, beyond create and delete ---------------------------
+
+/** FR-1.7: one role at a time, and naming MANAGER names the team too. */
+export const roleChangeSchema = z
+  .object({
+    role: z.enum(Object.values(ROLES)),
+    teamId: z.string().nullable().optional(),
+    reason: z.string().trim().min(1, 'A reason is required'),
+  })
+  .refine((value) => value.role !== ROLES.MANAGER || Boolean(value.teamId), {
+    message:
+      'Choosing MANAGER requires naming the team they will manage, so exactly one manager holds before and after.',
+  });
+
+/** FR-3.14: a move carries an effective date and never rewrites history. */
+export const teamMoveSchema = z.object({
+  teamId: z.string().min(1, 'A team is required'),
+  effectiveFrom: isoDate,
+  replacementManagerId: z.string().nullable().optional(),
+  reason: z.string().trim().min(1, 'A reason is required'),
+});
+
+/** FR-3.6: a shift assignment is an effective date range, not a field. */
+export const shiftAssignmentSchema = z
+  .object({
+    shiftId: z.string().min(1, 'A shift is required'),
+    effectiveFrom: isoDate,
+    effectiveTo: isoDate.nullable().optional(),
+    reason: z.string().trim().min(1, 'A reason is required'),
+  })
+  .refine(
+    (value) => !value.effectiveTo || value.effectiveTo >= value.effectiveFrom,
+    { message: 'An assignment cannot end before it starts' },
+  );
+
+/** FR-2.10 and FR-1.5. Only these two fields are toggles. */
+export const userFlagSchema = z.object({
+  field: z.enum(['tracked', 'loginEnabled']),
+  value: z.boolean(),
+  reason: z.string().trim().min(1, 'A reason is required'),
+});
+
+/**
+ * FR-2.12: a tenure is an unbroken period, open while still employed.
+ *
+ * The fields and the refinement are separate because Zod cannot take
+ * `.partial()` of a refined schema, and an edit legitimately supplies only one
+ * date. `endsAfterItStarts` is therefore applied to whichever shape is being
+ * validated rather than baked into the object.
+ */
+const tenureFields = z.object({
+  startDate: isoDate,
+  endDate: isoDate.nullable().optional(),
+  reason: z.string().trim().min(1, 'A reason is required'),
+});
+
+const endsAfterItStarts = (value) =>
+  !value.endDate || !value.startDate || value.endDate >= value.startDate;
+
+const TENURE_ORDER_MESSAGE = {
+  message: 'A tenure cannot end before it starts',
+};
+
+export const tenureSchema = tenureFields.refine(
+  endsAfterItStarts,
+  TENURE_ORDER_MESSAGE,
+);
+
+export const tenurePatchSchema = tenureFields
+  .partial()
+  .refine(endsAfterItStarts, TENURE_ORDER_MESSAGE);
+
+/**
+ * P-10. FR-1.7: a user holds exactly one role, and naming them MANAGER names
+ * the team, replacing that team's previous manager in the same action so
+ * FR-3.1 holds before and after.
+ */
+export async function changeUserRole(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(roleChangeSchema, input);
+  const before = await getUserById(id, companyId);
+  if (!before) return null;
+
+  const db = await getDb();
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    COLLECTIONS.USERS,
+    id,
+    version,
+    {
+      $set: {
+        role: data.role,
+        ...(data.role === ROLES.MANAGER ? { teamId: data.teamId } : {}),
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  if (data.role === ROLES.MANAGER) {
+    // The team is the source of truth for who manages it. The outgoing
+    // manager keeps their role — they may run another team, and demoting
+    // somebody is a decision rather than a side effect of this one.
+    await db
+      .collection(COLLECTIONS.TEAMS)
+      .updateOne(
+        { _id: new ObjectId(data.teamId), companyId },
+        { $set: { managerId: id, updatedAt: now, updatedBy: actor.userId } },
+      );
+  }
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'USER_ROLE_CHANGED',
+    entityType: 'user',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+export async function listTeamAssignments(
+  userId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.TEAM_ASSIGNMENTS)
+    .find({ companyId, userId, deletedAt: null })
+    .sort({ effectiveFrom: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * P-11. FR-3.14: an edit of the user's assignment, requiring no change to
+ * either team.
+ *
+ * The outgoing assignment is closed the day before the new one opens, so no
+ * date is covered twice and none is left uncovered — which is what lets the
+ * engine resolve the team a user held on any past date.
+ *
+ * Where the user manages the team they are leaving, a replacement is named in
+ * the same action; otherwise that team would be left with none.
+ */
+export async function moveUserTeam(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(teamMoveSchema, input);
+  const before = await getUserById(id, companyId);
+  if (!before) return null;
+
+  const db = await getDb();
+  const now = new Date();
+
+  const outgoing = before.teamId
+    ? await db
+        .collection(COLLECTIONS.TEAMS)
+        .findOne({ _id: new ObjectId(before.teamId), companyId })
+    : null;
+
+  if (outgoing?.managerId === id && !data.replacementManagerId) {
+    throw new ValidationError(
+      `${before.fullName} manages ${outgoing.name}. Name a replacement manager in the same action, so that team is never left without one.`,
+    );
+  }
+
+  const dayBefore = (date) => {
+    const [year, month, day] = date.split('-').map(Number);
+    const previous = new Date(Date.UTC(year, month - 1, day - 1));
+    return previous.toISOString().slice(0, 10);
+  };
+
+  await db.collection(COLLECTIONS.TEAM_ASSIGNMENTS).updateMany(
+    { companyId, userId: id, effectiveTo: null, deletedAt: null },
+    {
+      $set: {
+        effectiveTo: dayBefore(data.effectiveFrom),
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+    },
+  );
+
+  // A user assigned before assignments were recorded has no open row to close,
+  // so their previous team is written as a closed one rather than being lost.
+  const openRows = await db
+    .collection(COLLECTIONS.TEAM_ASSIGNMENTS)
+    .countDocuments({ companyId, userId: id });
+
+  if (openRows === 0 && before.teamId) {
+    await db.collection(COLLECTIONS.TEAM_ASSIGNMENTS).insertOne({
+      companyId,
+      userId: id,
+      teamId: before.teamId,
+      effectiveFrom: before.dateOfJoining,
+      effectiveTo: dayBefore(data.effectiveFrom),
+      deletedAt: null,
+      version: 1,
+      createdAt: now,
+      createdBy: actor.userId,
+    });
+  }
+
+  await db.collection(COLLECTIONS.TEAM_ASSIGNMENTS).insertOne({
+    companyId,
+    userId: id,
+    teamId: data.teamId,
+    effectiveFrom: data.effectiveFrom,
+    effectiveTo: null,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+  });
+
+  if (data.replacementManagerId && outgoing) {
+    await db.collection(COLLECTIONS.TEAMS).updateOne(
+      { _id: outgoing._id, companyId },
+      {
+        $set: {
+          managerId: data.replacementManagerId,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        },
+      },
+    );
+    await promoteToManager(data.replacementManagerId, actor, companyId);
+  }
+
+  const after = await updateWithVersion(
+    COLLECTIONS.USERS,
+    id,
+    version,
+    {
+      $set: { teamId: data.teamId, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'USER_TEAM_MOVED',
+    entityType: 'user',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+export async function listShiftAssignments(
+  userId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.SHIFT_ASSIGNMENTS)
+    .find({ companyId, userId, deletedAt: null })
+    .sort({ effectiveFrom: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * P-12. FR-3.6: an effective date range, so a mid-year shift change is
+ * preserved historically rather than overwriting the past.
+ */
+export async function assignUserShift(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(shiftAssignmentSchema, input);
+  const before = await getUserById(id, companyId);
+  if (!before) return null;
+
+  const db = await getDb();
+  const now = new Date();
+
+  await db.collection(COLLECTIONS.SHIFT_ASSIGNMENTS).insertOne({
+    companyId,
+    userId: id,
+    shiftId: data.shiftId,
+    effectiveFrom: data.effectiveFrom,
+    effectiveTo: data.effectiveTo ?? null,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+  });
+
+  const after = await updateWithVersion(
+    COLLECTIONS.USERS,
+    id,
+    version,
+    {
+      $set: { shiftId: data.shiftId, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'USER_SHIFT_ASSIGNED',
+    entityType: 'user',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * P-13 and P-14. The two independent booleans of `FR-2.5`.
+ *
+ * One function rather than two, because the only difference between them is
+ * the field name — and both are audited with a mandatory reason, delete no
+ * history, and touch nothing else.
+ */
+export async function setUserFlag(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(userFlagSchema, input);
+  const before = await getUserById(id, companyId);
+  if (!before) return null;
+
+  const after = await updateWithVersion(
+    COLLECTIONS.USERS,
+    id,
+    version,
+    {
+      $set: {
+        [data.field]: data.value,
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action:
+      data.field === 'tracked' ? 'USER_TRACKED_SET' : 'USER_LOGIN_ENABLED_SET',
+    entityType: 'user',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Tenures ---------------------------------------------------------------
+
+/**
+ * Rewrites the two stored employment dates from whatever the tenures now say.
+ *
+ * FR-2.12 requires every operation that creates, edits, closes, soft deletes
+ * or restores a tenure to write both in the same operation, so neither can
+ * drift from the tenures they are derived from.
+ */
+async function rewriteEmploymentDates(userId, actor, companyId) {
+  const db = await getDb();
+  const tenures = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId })
+    .toArray();
+
+  const { dateOfJoining, dateOfLeaving } = deriveEmploymentDates(tenures);
+
+  await db.collection(COLLECTIONS.USERS).updateOne(
+    { _id: new ObjectId(userId), companyId },
+    {
+      $set: {
+        dateOfJoining,
+        dateOfLeaving,
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      },
+    },
+  );
+}
+
+/** Two tenures of the same user may not overlap (`FR-2.12`). */
+function assertNoOverlap(tenures, candidate, exceptId) {
+  const start = candidate.startDate;
+  const end = candidate.endDate ?? '9999-12-31';
+
+  for (const existing of tenures) {
+    if (existing.deletedAt) continue;
+    if (exceptId && String(existing._id) === exceptId) continue;
+
+    const otherStart = existing.startDate;
+    const otherEnd = existing.endDate ?? '9999-12-31';
+
+    if (start <= otherEnd && otherStart <= end) {
+      throw new ValidationError(
+        `This overlaps the tenure running from ${otherStart} to ${existing.endDate ?? 'now'}. Two tenures of the same user cannot overlap — a gap between them is what says they were not employed.`,
+      );
+    }
+  }
+}
+
+/** P-17. Adds a tenure — a re-hire's earlier period, or a correction. */
+export async function createTenure(
+  userId,
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(userId)) return null;
+
+  const data = parse(tenureSchema, input);
+  const db = await getDb();
+
+  const existing = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId })
+    .toArray();
+
+  assertNoOverlap(existing, data, null);
+
+  const now = new Date();
+  const doc = {
+    companyId,
+    userId,
+    startDate: data.startDate,
+    endDate: data.endDate ?? null,
+    deletedAt: null,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+  };
+
+  const { insertedId } = await db
+    .collection(COLLECTIONS.TENURES)
+    .insertOne(doc);
+
+  await rewriteEmploymentDates(userId, actor, companyId);
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TENURE_CREATED',
+    entityType: 'tenure',
+    entityId: insertedId,
+    after: doc,
+    reason: data.reason,
+    companyId,
+  });
+
+  return { ...doc, _id: insertedId };
+}
+
+/**
+ * P-17's edit. FR-2.12: editing corrects a wrong date but **cannot close an
+ * open tenure** — an end date is set in one way only, by soft deleting the
+ * user, which is what makes "one open tenure per serving user" hold.
+ */
+export async function updateTenure(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.TENURES)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const data = parse(tenurePatchSchema, patch);
+
+  // An edit may move only the start, so the order check has to run against the
+  // stored value rather than only against what was supplied.
+  const proposedStart = data.startDate ?? before.startDate;
+  const proposedEnd = data.endDate ?? before.endDate;
+  if (proposedEnd && proposedEnd < proposedStart) {
+    throw new ValidationError('A tenure cannot end before it starts');
+  }
+
+  if (before.endDate === null && data.endDate) {
+    throw new ValidationError(
+      'This tenure is open, and editing cannot close it. A date of leaving is set by soft deleting the user, which is the only thing that closes a tenure.',
+    );
+  }
+
+  const siblings = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId: before.userId })
+    .toArray();
+
+  assertNoOverlap(
+    siblings,
+    {
+      startDate: data.startDate ?? before.startDate,
+      endDate: data.endDate ?? before.endDate,
+    },
+    id,
+  );
+
+  const after = await updateWithVersion(
+    COLLECTIONS.TENURES,
+    id,
+    version,
+    {
+      $set: {
+        ...(data.startDate ? { startDate: data.startDate } : {}),
+        ...(data.endDate ? { endDate: data.endDate } : {}),
+        updatedAt: new Date(),
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await rewriteEmploymentDates(before.userId, actor, companyId);
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TENURE_UPDATED',
+    entityType: 'tenure',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * P-18. Refused when it is the user's last tenure that is not soft deleted:
+ * `FR-2.12` says every user always keeps at least one.
+ */
+export async function softDeleteTenure(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const data = parse(reasonSchema, input);
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.TENURES)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const remaining = await db
+    .collection(COLLECTIONS.TENURES)
+    .countDocuments({ companyId, userId: before.userId, deletedAt: null });
+
+  if (remaining <= 1) {
+    throw new ValidationError(
+      'This is the last tenure this user has that is not soft deleted, and every user keeps at least one. Correct its dates instead.',
+    );
+  }
+
+  const now = new Date();
+  const after = await updateWithVersion(
+    COLLECTIONS.TENURES,
+    id,
+    version,
+    {
+      $set: { deletedAt: now, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await rewriteEmploymentDates(before.userId, actor, companyId);
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'TENURE_SOFT_DELETED',
+    entityType: 'tenure',
+    entityId: id,
+    before,
+    after,
+    reason: data.reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Roster import ---------------------------------------------------------
+
+/**
+ * Every employee code in use, **including soft-deleted users** (`FR-2.6`).
+ *
+ * Loaded once as a set so the import validates 1000 rows in memory rather than
+ * querying per row.
+ */
+export async function getAllEmployeeCodes(companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+  const docs = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId })
+    .project({ employeeCode: 1 })
+    .toArray();
+
+  return docs.map((doc) => doc.employeeCode);
+}
+
+/**
+ * FR-2.9. Commits the roster: every accepted row becomes a user with their
+ * first tenure open from the date of joining.
+ *
+ * **Atomic** — every row is written or none is. That is a guarantee about the
+ * observable outcome rather than about the number of calls, so a partially
+ * applied import must never be queryable. A transaction gives exactly that;
+ * where the deployment has no replica set to support one, the whole import is
+ * rejected rather than half-applied.
+ */
+export async function commitRosterImport(
+  rows,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (rows.length === 0) {
+    throw new ValidationError('There is nothing to import.');
+  }
+
+  const parsed = rows.map((row) => parse(userInputSchema, row));
+  const client = await getClient();
+  const session = client.startSession();
+  const db = await getDb();
+  const now = new Date();
+  const created = [];
+
+  try {
+    await session.withTransaction(async () => {
+      created.length = 0;
+
+      for (const data of parsed) {
+        const tenures = [
+          { startDate: data.dateOfJoining, endDate: null, deletedAt: null },
+        ];
+        const { dateOfJoining, dateOfLeaving } = deriveEmploymentDates(tenures);
+
+        const doc = {
+          ...data,
+          workEmail: data.workEmail ? data.workEmail.toLowerCase() : null,
+          teamId: data.teamId ?? null,
+          shiftId: data.shiftId ?? null,
+          dateOfJoining,
+          dateOfLeaving,
+          companyId,
+          deletedAt: null,
+          version: 1,
+          createdAt: now,
+          createdBy: actor.userId,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        };
+
+        const { insertedId } = await db
+          .collection(COLLECTIONS.USERS)
+          .insertOne(doc, { session });
+
+        await db.collection(COLLECTIONS.TENURES).insertOne(
+          {
+            companyId,
+            userId: String(insertedId),
+            startDate: data.dateOfJoining,
+            endDate: null,
+            deletedAt: null,
+            version: 1,
+            createdAt: now,
+            createdBy: actor.userId,
+          },
+          { session },
+        );
+
+        created.push({ ...doc, _id: insertedId });
+      }
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      throw new ValidationError(
+        'An employee code in this file is already in use. Nothing was imported — re-validate the file and try again.',
+      );
+    }
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+
+  // Audited after the transaction commits, so the log never records an import
+  // that was rolled back. One record for the import, one per user, because
+  // both questions get asked: what happened, and to whom.
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'ROSTER_IMPORTED',
+    entityType: 'roster',
+    entityId: null,
+    after: { count: created.length },
+    reason: 'Go-live migration from the Biometric ID sheet (FR-2.9).',
+    companyId,
+  });
+
+  for (const user of created) {
+    await writeAuditRecord({
+      actorId: actor.userId,
+      actorName: actor.name,
+      action: 'USER_CREATED',
+      entityType: 'user',
+      entityId: user._id,
+      after: user,
+      reason: 'Roster import',
+      companyId,
+    });
+  }
+
+  return { created: created.length };
+}
+
 // --- Approvals -------------------------------------------------------------
 
 /**

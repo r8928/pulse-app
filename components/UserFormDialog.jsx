@@ -12,7 +12,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ROLES } from '../constants/index.js';
 
 const EMPTY = {
@@ -27,7 +27,12 @@ const EMPTY = {
 };
 
 /**
- * P-08. Creates a user and opens their first tenure from the date of joining.
+ * P-08 and P-09. Creates a user and opens their first tenure from the date of
+ * joining, or edits the `FR-2.6` fields of one that exists.
+ *
+ * Role, team and shift are deliberately absent from the edit case: `FR-2.1`
+ * makes each a separate operation with its own consequences, and each has its
+ * own dialog carrying its own mandatory reason.
  *
  * Enter submits and Esc cancels, via a real form element: the primary button
  * is type='submit' and every other button is type='button', so neither
@@ -40,8 +45,30 @@ export function UserFormDialog({
   pending,
   error,
   employmentTypes,
+  initial,
 }) {
   const [values, setValues] = useState(EMPTY);
+  const editing = Boolean(initial);
+
+  useEffect(() => {
+    if (!open) return;
+
+    setValues(
+      initial
+        ? {
+            ...EMPTY,
+            fullName: initial.fullName ?? '',
+            employeeCode: initial.employeeCode ?? '',
+            workEmail: initial.workEmail ?? '',
+            employmentType: initial.employmentType ?? '',
+            role: initial.role ?? EMPTY.role,
+            tracked: Boolean(initial.tracked),
+            loginEnabled: Boolean(initial.loginEnabled),
+            dateOfJoining: initial.dateOfJoining ?? '',
+          }
+        : EMPTY,
+    );
+  }, [open, initial]);
 
   const set = (field) => (event) =>
     setValues((current) => ({ ...current, [field]: event.target.value }));
@@ -52,15 +79,18 @@ export function UserFormDialog({
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    // Role is changed through P-10, never here, so an edit never carries one.
+    const { role, tracked, loginEnabled, ...fields } = values;
+
     const created = await onSubmit({
-      ...values,
+      ...(editing ? fields : values),
       // FR-2.6: work email is optional. An empty field means "none", which is
       // not the same as an empty string and must not be stored as one.
       workEmail: values.workEmail.trim() ? values.workEmail.trim() : null,
     });
 
     if (created) {
-      setValues(EMPTY);
+      if (!editing) setValues(EMPTY);
       onClose();
     }
   };
@@ -68,7 +98,7 @@ export function UserFormDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth='sm' fullWidth>
       <form onSubmit={handleSubmit}>
-        <DialogTitle>New user</DialogTitle>
+        <DialogTitle>{editing ? 'Edit user' : 'New user'}</DialogTitle>
 
         <DialogContent dividers>
           <Stack spacing={3}>
@@ -130,7 +160,10 @@ export function UserFormDialog({
                 </TextField>
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid
+                size={{ xs: 12, sm: 6 }}
+                sx={{ display: editing ? 'none' : undefined }}
+              >
                 <TextField
                   select
                   label='Role'
@@ -192,7 +225,7 @@ export function UserFormDialog({
             Cancel
           </Button>
           <Button type='submit' variant='contained' loading={pending}>
-            Create user
+            {editing ? 'Save changes' : 'Create user'}
           </Button>
         </DialogActions>
       </form>

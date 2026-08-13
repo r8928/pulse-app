@@ -57,9 +57,17 @@ const ROUTE_RULES = [
   // API routes gate the same way as the screens they serve. Mutations assert
   // their write permission in the handler, through guard.js, because the
   // required permission depends on the method rather than the path.
+  // Above the dynamic pattern, which would otherwise swallow it and hand the
+  // go-live migration to anyone holding user.read.
+  { pattern: /^\/api\/users\/import$/, permission: PERMISSIONS.USER_IMPORT },
   { pattern: /^\/api\/users(\/[^/]+)?$/, permission: PERMISSIONS.USER_READ },
   {
-    pattern: /^\/api\/users\/[^/]+\/(soft-delete|restore)$/,
+    pattern:
+      /^\/api\/users\/[^/]+\/(soft-delete|restore|role|team|shift|flag|tenures)$/,
+    permission: PERMISSIONS.USER_READ,
+  },
+  {
+    pattern: /^\/api\/tenures\/[^/]+(\/soft-delete)?$/,
     permission: PERMISSIONS.USER_READ,
   },
 

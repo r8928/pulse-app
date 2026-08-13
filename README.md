@@ -46,6 +46,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Access control matrix, effective next request (`S-19`) | Done |
 | Teams, with the manager and member count (`S-16`) | Done |
 | Team configuration: shifts, calendar, weekly off, policy, ladders (`S-17`) | Done |
+| User lifecycle: role, team, shift, tracked, login, tenures (`S-07`) | Done |
+| Roster import from the Biometric ID sheet (`S-08`) | Done |
 | Audit records on every mutation | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
@@ -53,7 +55,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Day classification (`FR-5.x`) | Not started |
 | Leave engine (`FR-6.x`), PTO and CTO (`FR-7.x`) | Not started |
 | Reporting (`FR-8.3`–`FR-8.5`), exceptions queue (`FR-8.6`) | Stub screens only |
-| Both Excel imports | Stub screens only |
+| Attendance Excel import (`S-11`) | Stub screen only |
 
 Every collection exists already, so none of the above needs a migration.
 
@@ -106,6 +108,10 @@ no value for the midnight-crossing or duplicate-punch windows, so `S-17` asks
 rather than guessing. Three of the four seeded teams likewise have no manager.
 That is `DC-6` working, not a broken seed.
 
+**The roster import guesses nothing.** The sheet carries a code and a name;
+every other field is prompted for and the commit is blocked until each is
+answered. It imports people, not attendance.
+
 **`recalculateDays` returns zero until Phase 5.** Its callers are real; the
 body is not. `database.js` must never import it — the engine imports
 `database.js`.
@@ -142,3 +148,8 @@ scripts/seed.js   §3.10 configuration and demo roster
 `next-auth` is on `5.0.0-beta.32`. v5 is the App-Router-first line and lists
 `next ^16` as a supported peer, but it is pre-release. All of it is confined to
 `auth.js` and `session.js`, so replacing it is a two-file change.
+
+`npm audit` reports two moderate advisories from `exceljs`, both the same
+`uuid` one: *missing buffer bounds check in v3/v5/v6 when `buf` is provided*.
+It is not reachable — `exceljs` calls `uuidv4()` with no buffer. Recorded here
+rather than left to look like a clean audit.
