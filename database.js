@@ -3812,6 +3812,170 @@ export async function loadRecalculationInputs(
 }
 
 /**
+ * S-09. FR-5.6 and FR-5.7: what the engine concluded, totalled over a range.
+ *
+ * Computed by the database rather than in this process, because NFR-3 puts a
+ * full-company month under two seconds at p95 and NFR-5 sizes for 1000 users
+ * over five years — pulling every record back to add it up stops meeting that
+ * long before the roster does.
+ *
+ * Every total reads the EFFECTIVE value (`$ifNull` over the override), so an
+ * administrator's decision counts exactly as the engine's own conclusion
+ * would (FR-6.11). A figure totalled one way here and another way on S-10 is
+ * precisely the drift NFR-8 forbids.
+ *
+ * FR-2.10: untracked colleagues receive no day records, so they contribute
+ * nothing — but they are counted, because the screen has to state the
+ * exclusion rather than leave it silent.
+ */
+export async function summariseAttendance({
+  from,
+  to,
+  teamId = null,
+  userId = null,
+  includeDeleted = false,
+  companyId = DEFAULT_COMPANY_ID,
+}) {
+  const db = await getDb();
+
+  const userFilter = { companyId, tracked: true };
+  if (teamId) userFilter.teamId = teamId;
+  if (userId && ObjectId.isValid(userId)) userFilter._id = new ObjectId(userId);
+  if (!includeDeleted) userFilter.deletedAt = null;
+
+  const users = await db
+    .collection(COLLECTIONS.USERS)
+    .find(userFilter)
+    .sort({ fullName: 1 })
+    .toArray();
+
+  const untrackedFilter = { companyId, tracked: false };
+  if (teamId) untrackedFilter.teamId = teamId;
+  if (!includeDeleted) untrackedFilter.deletedAt = null;
+  const untrackedCount = await db
+    .collection(COLLECTIONS.USERS)
+    .countDocuments(untrackedFilter);
+
+  if (users.length === 0) return { rows: [], untrackedCount };
+
+  const userIds = users.map((user) => String(user._id));
+
+  /** The status a reader sees: the human decision where there is one. */
+  const effectiveStatus = {
+    $ifNull: ['$override.dayStatus', '$computed.dayStatus'],
+  };
+  const effectiveLate = {
+    $ifNull: ['$override.lateMinutes', '$computed.lateMinutes'],
+  };
+
+  const countWhen = (condition) => ({
+    $sum: { $cond: [condition, 1, 0] },
+  });
+
+  /**
+   * "Present" means a day that was worked, wherever it was worked from, so a
+   * work-from-home day counts in both `present` and `wfh`. spec.md defines
+   * neither column, and the alternative — present meaning in-office only —
+   * would leave a full week worked from home reading as a week of nothing.
+   * `wfh` remains its own column because BR-16 caps it as a quota.
+   */
+
+  const totals = await db
+    .collection(COLLECTIONS.DAY_RECORDS)
+    .aggregate([
+      {
+        $match: {
+          companyId,
+          deletedAt: null,
+          userId: { $in: userIds },
+          date: { $gte: from, $lte: to },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+          present: countWhen({
+            $in: [effectiveStatus, [DAY_STATUS.WFO, DAY_STATUS.WFH]],
+          }),
+          absent: countWhen({ $eq: [effectiveStatus, DAY_STATUS.ABSENT] }),
+          wfh: countWhen({ $eq: [effectiveStatus, DAY_STATUS.WFH] }),
+          leave: countWhen({ $eq: [effectiveStatus, DAY_STATUS.LEAVE] }),
+          /**
+           * FR-5.6 and BR-27: a day counts as worked on a non-working day only
+           * above that team's threshold. A HOLIDAY_WORK day below it is still
+           * SHOWN with its duration on S-10 and S-12 — status and counting are
+           * separate questions — but it is not counted here. The engine has
+           * already applied the threshold, so this reads its answer rather
+           * than re-deriving one.
+           */
+          holidayWork: countWhen({
+            $eq: ['$computed.countsAsHolidayWork', true],
+          }),
+          lateDays: countWhen({ $gt: [effectiveLate, 0] }),
+          shortDays: countWhen({ $eq: ['$computed.isShortDay', true] }),
+        },
+      },
+    ])
+    .toArray();
+
+  /**
+   * Leave is broken down by TYPE (FR-5.7), and the type lives on the leave
+   * record rather than on the day — D-9 makes the record the thing that states
+   * which balance a day spends.
+   */
+  const leaveTotals = await db
+    .collection(COLLECTIONS.LEAVE_RECORDS)
+    .aggregate([
+      {
+        $match: {
+          companyId,
+          deletedAt: null,
+          userId: { $in: userIds },
+          date: { $gte: from, $lte: to },
+        },
+      },
+      {
+        $group: {
+          _id: { userId: '$userId', leaveType: '$leaveType' },
+          days: { $sum: 1 },
+        },
+      },
+    ])
+    .toArray();
+
+  const totalsByUser = new Map(totals.map((row) => [row._id, row]));
+
+  const leaveByUser = new Map();
+  for (const row of leaveTotals) {
+    const forUser = leaveByUser.get(row._id.userId) ?? {};
+    forUser[row._id.leaveType] = row.days;
+    leaveByUser.set(row._id.userId, forUser);
+  }
+
+  const rows = users.map((user) => {
+    const id = String(user._id);
+    const totalsForUser = totalsByUser.get(id) ?? {};
+
+    return {
+      userId: id,
+      fullName: user.fullName,
+      employeeCode: user.employeeCode,
+      deletedAt: user.deletedAt,
+      present: totalsForUser.present ?? 0,
+      absent: totalsForUser.absent ?? 0,
+      wfh: totalsForUser.wfh ?? 0,
+      leave: totalsForUser.leave ?? 0,
+      holidayWork: totalsForUser.holidayWork ?? 0,
+      lateDays: totalsForUser.lateDays ?? 0,
+      shortDays: totalsForUser.shortDays ?? 0,
+      leaveByType: leaveByUser.get(id) ?? {},
+    };
+  });
+
+  return { rows, untrackedCount };
+}
+
+/**
  * S-10's whole read, in one call: every tracked member of one team on one
  * date, each with their day record, that date's punches, and the shift they
  * held on it.
