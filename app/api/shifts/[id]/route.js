@@ -29,7 +29,11 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
     }
 
-    await recalculateDays(null, { from: null, to: null });
+    await recalculateDays(
+      null,
+      { from: null, to: null },
+      { teamId: updated.teamId },
+    );
 
     return NextResponse.json(updated);
   } catch (error) {

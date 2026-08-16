@@ -109,6 +109,34 @@ const ROUTE_RULES = [
     pattern: /^\/api\/(shifts|holidays)\/[^/]+\/soft-delete$/,
     permission: PERMISSIONS.CONFIG_READ,
   },
+
+  // M-4 and M-5. The path gates on the read permission; each handler asserts
+  // attendance.write or leave.write for its own method, the same split the
+  // team routes above already use.
+  {
+    pattern: /^\/api\/punches\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
+  },
+  {
+    pattern: /^\/api\/punches(\/[^/]+)?$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
+  },
+  {
+    pattern: /^\/api\/attendance\/[^/]+\/[^/]+\/override$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
+  },
+  {
+    pattern: /^\/api\/attendance(\/[^/]+\/[^/]+)?$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
+  },
+  {
+    pattern: /^\/api\/leave-records\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.LEAVE_READ,
+  },
+  {
+    pattern: /^\/api\/leave-records(\/[^/]+)?$/,
+    permission: PERMISSIONS.LEAVE_READ,
+  },
   {
     pattern: /^\/api\/(shifts|holidays)(\/[^/]+)?$/,
     permission: PERMISSIONS.CONFIG_READ,

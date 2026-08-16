@@ -77,5 +77,11 @@ export function useMutations() {
     // PUT is for the two records that are replaced whole rather than patched:
     // a team's weekly off pattern and its policy document.
     put: (url, body) => run(() => send('PUT', url, body)),
+    /**
+     * DELETE removes a sub-resource, never a record. The only one is a day
+     * record's override (P-23 to P-25 undone) — the day itself survives, and
+     * nothing in Pulse is ever hard deleted (FR-2.2, I-1).
+     */
+    del: (url, body) => run(() => send('DELETE', url, body)),
   };
 }

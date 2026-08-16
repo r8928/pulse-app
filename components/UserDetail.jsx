@@ -14,9 +14,13 @@ import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import Link from 'next/link';
 import { useState } from 'react';
 import { RESTORE_CASE } from '../constants/index.js';
 import { useUserMutations } from '../hooks/useUserMutations.js';
+import { effective, hasOverride } from '../utils/dayRecord.js';
+import { formatDuration } from '../utils/duration.js';
+import { DayStatusChip } from './attendance/DayStatusChip.jsx';
 import { PageHeader } from './PageHeader.jsx';
 import { ReasonDialog } from './ReasonDialog.jsx';
 import { UserFormDialog } from './UserFormDialog.jsx';
@@ -44,8 +48,12 @@ const TABS = [
   'History',
 ];
 
-/** Tabs whose collections stay empty until the engine and ledger ship. */
-const NOT_YET = { 4: 'Attendance', 5: 'Leave and balances' };
+/**
+ * Tabs whose collections stay empty until the ledger's read surface ships.
+ * Attendance left this list in Phase 5 — the engine now produces the records
+ * it lists.
+ */
+const NOT_YET = { 5: 'Leave and balances' };
 
 const FIELD_LABELS = [
   ['fullName', 'Full name'],
@@ -74,6 +82,7 @@ export function UserDetail({
   colleagues,
   shiftAssignments,
   teamAssignments,
+  dayRecords = [],
   canWrite,
 }) {
   const [tab, setTab] = useState(0);
@@ -260,6 +269,64 @@ export function UserDetail({
             ) : null
           }
         />
+      ) : null}
+
+      {tab === 4 ? (
+        <Paper variant='outlined'>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>Day type</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Worked</TableCell>
+                <TableCell>Deduction</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {dayRecords.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <Typography color='text.secondary'>
+                      No day records yet. One is created the first time
+                      something touches a date — a punch, a day of leave, or an
+                      administrator opening the daily grid.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                dayRecords.map((record) => (
+                  <TableRow key={record._id}>
+                    <TableCell>
+                      <Link href={`/attendance/${user._id}/${record.date}`}>
+                        {record.date}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{record.dayType}</TableCell>
+                    <TableCell>
+                      <DayStatusChip
+                        status={effective(record, 'dayStatus')}
+                        overridden={hasOverride(record, 'dayStatus')}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant='mono'>
+                        {formatDuration(
+                          effective(record, 'workedMinutes') ?? 0,
+                        )}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant='mono'>
+                        {effective(record, 'deduction') || '—'}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Paper>
       ) : null}
 
       {NOT_YET[tab] ? (

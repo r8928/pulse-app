@@ -47,7 +47,7 @@ export async function PUT(request, { params }) {
     const { version, ...patch } = await request.json();
     const policy = await updateTeamPolicy(id, patch, version, actor);
 
-    await recalculateDays(null, { from: null, to: null });
+    await recalculateDays(null, { from: null, to: null }, { teamId: id });
 
     return NextResponse.json(policy);
   } catch (error) {

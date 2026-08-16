@@ -963,6 +963,16 @@ resolveDayStatus({ dayType, override, authorisedLeave, punches }):
   4. return punches.length > 0 ? WFO : ABSENT
 ```
 
+**Step 1 is `effective()`'s job, not `computed`'s.** `recalculateDays` calls
+this with `override: null`, so `computed.dayStatus` holds the engine's own
+conclusion and the human decision stays beside it in `override.dayStatus`,
+which is what §12.1 requires. The order above is still exactly what a reader
+sees, because every reader goes through
+`effective(dayRecord, 'dayStatus')` — that helper *is* step 1. Folding the
+override into `computed` instead would lose the engine's answer permanently
+and make `FR-6.12`'s "refresh the computed value, leave the override standing"
+unverifiable.
+
 ### 16.1 The traps
 
 - **Any punches at all on a non-working day make it `HOLIDAY_WORK`**, however
@@ -1490,8 +1500,29 @@ recalculateDays(userId, fromDate, toDate):
         if nothing changed: write NOTHING — do not bump version   ← §19.3
 ```
 
+**Step 10 is `P6` and is not called.** `§21` and `§22` are `P6` in full, so
+Phase 5's `recalculateDays` imports nothing from either. The design record's
+§4 names this as a deliberate boundary rather than an omission.
+
+**Which dates the loop actually visits** (`D-18`). "Each date in range" is
+bounded by more than the employment period: a range recalculation does not by
+itself create a day record, or a policy edit covering a year would mint 365
+`ABSENT` rows per user against `D-15`. Only dates that already carry a record,
+a live punch or a leave record are visited. A caller that genuinely wants a
+record minted — `S-10` opening one team on one date — passes
+`options.materialiseUsers` for that bounded set.
+
+**An unbounded range** (`from` or `to` null, which a policy or calendar edit
+produces) resolves its ends from that user's recorded activity, never from the
+clock: `NFR-8` requires a re-run over a past period to be deterministic, and
+reading "now" inside the range resolution would break that.
+
 **Step 9 reconciles rather than deletes.** An entry that should no longer
-exist is reversed, never removed (`I-1`).
+exist is reversed, never removed (`I-1`). It matches on the *effect* —
+`(entryType, leaveType, amount)` — and deliberately not on `sourceVersion`
+(`D-17`): a version bump that leaves the movement identical must not churn the
+ledger into cancelling pairs, or `S-14` stops being readable as the
+explanation `NFR-11` requires of it.
 
 ### 23.4 What triggers it, and over what range
 
@@ -1617,6 +1648,18 @@ only, `null` for anything created in the application, and never a foreign key.
 | `PATCH` | `/api/attendance/[userId]/[date]/override` | `attendance.write` |
 | `POST` | `/api/attendance/import/validate` | `attendance.import` |
 | `POST` | `/api/attendance/import/commit` | `attendance.import` |
+| `DELETE` | `/api/attendance/[userId]/[date]/override` | `attendance.write` |
+| `POST` | `/api/leave-records`, `/api/leave-records/[id]/soft-delete` | `leave.write` |
+
+The last two rows were added in Phase 5. Clearing an override is a `DELETE`
+rather than a `PATCH` of nulls, because it removes a sub-resource and takes its
+own reason. The leave routes arrived here rather than with M-5 per `D-16`:
+`P-23` offers `LEAVE`, and a status whose ledger effect lands two branches
+later would put the day and the balance in disagreement.
+
+`GET /api/attendance` accepts `materialise=true`, which asserts
+`attendance.write` rather than the read permission — it is `D-15`'s single
+bounded call, and creating records is a write however it is reached.
 
 ### 25.3 The import
 

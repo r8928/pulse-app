@@ -169,6 +169,12 @@ export const LEDGER_ENTRY_TYPE = Object.freeze({
   OPENING_BALANCE: 'OPENING_BALANCE',
   ENTITLEMENT_CREDIT: 'ENTITLEMENT_CREDIT',
   LEAVE_AVAILED: 'LEAVE_AVAILED',
+  /**
+   * D-13: FR-5.5's work-from-home usage, a plain count against BR-16's quota.
+   * A quota is a ceiling rather than a pool drawn from a deposit, so this type
+   * has no matching ENTITLEMENT_CREDIT.
+   */
+  WFH_USED: 'WFH_USED',
   AUTOMATIC_DEDUCTION: 'AUTOMATIC_DEDUCTION',
   CTO_APPLIED: 'CTO_APPLIED',
   PTO_AWARD: 'PTO_AWARD',

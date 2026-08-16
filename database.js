@@ -1,14 +1,24 @@
+import { addDays, format, parseISO, subDays } from 'date-fns';
 import { MongoClient, ObjectId } from 'mongodb';
 import { z } from 'zod';
 import {
   ALL_PERMISSIONS,
   APPROVAL_STATUS,
+  DAY_STATUS,
+  HALF_DAY_PERIOD,
   HOLIDAY_TYPE,
+  LEDGER_ENTRY_TYPE,
+  PUNCH_SOURCE,
+  PUNCH_TYPE,
   RESTORE_CASE,
   ROLES,
   SCOPES,
 } from './constants/index.js';
-import { deriveEmploymentDates } from './utils/employment.js';
+import {
+  deriveEmploymentDates,
+  isWithinEmploymentPeriod,
+} from './utils/employment.js';
+import { ledgerEffectKey } from './utils/ledgerKey.js';
 import { missingConfiguration } from './utils/policyCompleteness.js';
 
 /**
@@ -305,6 +315,90 @@ export const reasonSchema = z.object({
   reason: z.string().trim().min(1, 'A reason is required'),
 });
 
+/**
+ * FR-4.1. A punch is one instant and one direction — the fact. Everything
+ * else about it (its work date, whether it is a duplicate) is a conclusion the
+ * engine reaches later and rewrites freely, so none of it is accepted from the
+ * writer.
+ */
+export const punchSchema = z.object({
+  userId: z.string().min(1),
+  at: z.coerce.date(),
+  type: z.enum(Object.values(PUNCH_TYPE)),
+  source: z.enum(Object.values(PUNCH_SOURCE)),
+});
+
+/**
+ * FR-4.12: a wrong punch is fixed by editing it. All three fields are
+ * editable, because all three can be wrong on an imported row — the time, the
+ * direction, or the person it was recorded against.
+ */
+export const punchPatchSchema = z
+  .object({
+    at: z.coerce.date().optional(),
+    type: z.enum(Object.values(PUNCH_TYPE)).optional(),
+    userId: z.string().min(1).optional(),
+    reason: z.string().trim().min(1).optional(),
+  })
+  .refine((value) => value.at || value.type || value.userId, {
+    message: 'Nothing to change — supply a time, a type or a user.',
+  });
+
+/**
+ * D-9. A leave record is a genuine engine INPUT, read the way a punch is —
+ * not an override of what the engine concluded. FR-6.2 makes the type
+ * mandatory; BR-11 makes a full day deduct one day of it.
+ *
+ * D-11: a half day carries the period it covers, because "late" is
+ * meaningless without knowing which half the person was expected to work.
+ */
+export const leaveRecordSchema = z
+  .object({
+    userId: z.string().min(1),
+    date: isoDate,
+    leaveType: z.string().trim().min(1, 'A leave type is required'),
+    amount: z.union([z.literal(1), z.literal(0.5)]),
+    halfDayPeriod: z.enum(Object.values(HALF_DAY_PERIOD)).nullable().optional(),
+    reason: z.string().trim().min(1, 'A reason is required'),
+  })
+  .refine((value) => value.amount !== 0.5 || Boolean(value.halfDayPeriod), {
+    message: 'A half day of leave must say which half — morning or afternoon.',
+  })
+  .refine((value) => value.amount !== 1 || !value.halfDayPeriod, {
+    message: 'A full day of leave covers both halves, so it takes no period.',
+  });
+
+/**
+ * FR-6.10's day-level overrides: P-23 sets a status, P-24 corrects the hours,
+ * P-25 waives a late arrival or short day. Any subset of the computed block,
+ * always with a reason (FR-9.4 — the why is as auditable as the what).
+ */
+export const dayOverrideSchema = z
+  .object({
+    dayStatus: z.enum(Object.values(DAY_STATUS)).optional(),
+    workedMinutes: z.number().min(0).optional(),
+    lateMinutes: z.number().min(0).optional(),
+    deduction: z.number().min(0).optional(),
+    reason: z.string().trim().min(1, 'A reason is required'),
+  })
+  .refine(
+    (value) =>
+      value.dayStatus !== undefined ||
+      value.workedMinutes !== undefined ||
+      value.lateMinutes !== undefined ||
+      value.deduction !== undefined,
+    { message: 'An override must change at least one value.' },
+  );
+
+/**
+ * The calendar day before a `YYYY-MM-DD` date, used to close an assignment's
+ * range the day before its successor opens so the two never overlap.
+ *
+ * Shared by the team and shift assignment writers — the same rule for both,
+ * so it exists once (CLAUDE.md).
+ */
+const dayBefore = (date) => format(subDays(parseISO(date), 1), 'yyyy-MM-dd');
+
 const parse = (schema, input) => {
   const result = schema.safeParse(input);
   if (!result.success) {
@@ -424,6 +518,22 @@ export async function ensureIndexes() {
       { key: { companyId: 1, userId: 1, date: 1 }, unique: true },
       { key: { companyId: 1, date: 1 } },
     ]);
+
+  await db.collection(COLLECTIONS.LEAVE_RECORDS).createIndexes([
+    { key: { companyId: 1, userId: 1, date: 1 } },
+    /**
+     * D-9: two conflicting leave facts for one date is not a real state — the
+     * same reasoning `createHoliday` already applies to one team observing two
+     * holidays on one date. Partial on `deletedAt: null` so a cancelled record
+     * never blocks the corrected one that replaces it.
+     */
+    {
+      key: { companyId: 1, userId: 1, date: 1 },
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+      name: 'leave_record_one_per_date',
+    },
+  ]);
 
   await db.collection(COLLECTIONS.LEDGER_ENTRIES).createIndexes([
     // Balance replay: every entry for a user up to a date (BR-14).
@@ -1117,12 +1227,6 @@ export async function moveUserTeam(
     );
   }
 
-  const dayBefore = (date) => {
-    const [year, month, day] = date.split('-').map(Number);
-    const previous = new Date(Date.UTC(year, month - 1, day - 1));
-    return previous.toISOString().slice(0, 10);
-  };
-
   await db.collection(COLLECTIONS.TEAM_ASSIGNMENTS).updateMany(
     { companyId, userId: id, effectiveTo: null, deletedAt: null },
     {
@@ -1237,6 +1341,46 @@ export async function assignUserShift(
 
   const db = await getDb();
   const now = new Date();
+
+  /**
+   * FR-3.6 means the PREVIOUS shift keeps its own range rather than being
+   * overwritten — otherwise a punch from before the change resolves against a
+   * shift the user was not on, and §13's work-date search silently produces
+   * the wrong day.
+   *
+   * The same two steps `moveUserTeam` already performs for teams: close any
+   * open row the day before the new one starts, and — for a user assigned
+   * before assignments were recorded — write the shift they held as a closed
+   * row rather than losing it.
+   */
+  await db.collection(COLLECTIONS.SHIFT_ASSIGNMENTS).updateMany(
+    { companyId, userId: id, effectiveTo: null, deletedAt: null },
+    {
+      $set: {
+        effectiveTo: dayBefore(data.effectiveFrom),
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+    },
+  );
+
+  const existingRows = await db
+    .collection(COLLECTIONS.SHIFT_ASSIGNMENTS)
+    .countDocuments({ companyId, userId: id });
+
+  if (existingRows === 0 && before.shiftId) {
+    await db.collection(COLLECTIONS.SHIFT_ASSIGNMENTS).insertOne({
+      companyId,
+      userId: id,
+      shiftId: before.shiftId,
+      effectiveFrom: before.dateOfJoining,
+      effectiveTo: dayBefore(data.effectiveFrom),
+      deletedAt: null,
+      version: 1,
+      createdAt: now,
+      createdBy: actor.userId,
+    });
+  }
 
   await db.collection(COLLECTIONS.SHIFT_ASSIGNMENTS).insertOne({
     companyId,
@@ -2954,6 +3098,1010 @@ export async function softDeleteAuthorisedDomain(
   });
 
   return after;
+}
+
+// --- Punches ---------------------------------------------------------------
+
+export async function getPunchById(id, companyId = DEFAULT_COMPANY_ID) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.PUNCHES)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+/**
+ * §13: a punch is found by its RESOLVED work date, not by the calendar date of
+ * its instant — a night-shift check-out at 02:30 belongs to the previous day's
+ * record. A punch whose work date has not been resolved yet matches nothing
+ * here, which is correct: it has no day to belong to until the engine gives it
+ * one.
+ */
+export async function listPunchesForUserDates(
+  userId,
+  dates,
+  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  const filter = { companyId, userId, workDate: { $in: dates } };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  return db
+    .collection(COLLECTIONS.PUNCHES)
+    .find(filter)
+    .sort({ at: 1, _id: 1 })
+    .toArray();
+}
+
+/** S-10: one work date, every user on one team. */
+export async function listPunchesForWorkDate(
+  workDate,
+  {
+    userIds = null,
+    includeDeleted = false,
+    companyId = DEFAULT_COMPANY_ID,
+  } = {},
+) {
+  const db = await getDb();
+  const filter = { companyId, workDate };
+  if (userIds) filter.userId = { $in: userIds };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  return db
+    .collection(COLLECTIONS.PUNCHES)
+    .find(filter)
+    .sort({ at: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * Every punch whose INSTANT falls in a window, whatever work date it carries.
+ *
+ * `recalculateDays` needs this to re-resolve work dates after a shift change
+ * (§23.3 step 3): the punch it must revisit is by definition one whose stored
+ * work date is now wrong, so filtering by that field would hide exactly the
+ * rows it is looking for.
+ */
+export async function listPunchesInInstantRange(
+  userId,
+  from,
+  to,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.PUNCHES)
+    .find({ companyId, userId, deletedAt: null, at: { $gte: from, $lte: to } })
+    .sort({ at: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * §25.4. A punch may not land outside its owner's employment period, nor on a
+ * user nobody tracks — and each refusal states which of the two applies rather
+ * than failing generically (FR-2.10, FR-2.12, DC-6).
+ *
+ * The instant's own calendar date is what is checked. The work date is not
+ * known until the engine resolves it against a shift (§13), and a tenure
+ * boundary is a day rather than an instant, so the two differ only for a punch
+ * on the very edge of a crossing shift on someone's first or last day.
+ *
+ * Returns the user, or null when there is none — the caller answers 404, so
+ * the existence of a record outside the viewer's reach is never leaked (§9.1).
+ */
+async function assertPunchTarget(userId, at, companyId) {
+  const user = await getUserById(userId, companyId);
+  if (!user) return null;
+
+  if (!user.tracked) {
+    throw new ValidationError(
+      `${user.fullName} is not tracked, so no attendance is recorded for them.`,
+    );
+  }
+
+  const db = await getDb();
+  const tenures = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId, deletedAt: null })
+    .toArray();
+
+  const date = format(at, 'yyyy-MM-dd');
+
+  if (!isWithinEmploymentPeriod(tenures, date)) {
+    throw new ValidationError(
+      `${date} is outside ${user.fullName}'s employment period, so no attendance can be recorded on it.`,
+    );
+  }
+
+  return user;
+}
+
+export async function createPunch(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(punchSchema, input);
+
+  const target = await assertPunchTarget(data.userId, data.at, companyId);
+  if (!target) return null;
+
+  return createOwnedRecord(COLLECTIONS.PUNCHES, {
+    data: {
+      ...data,
+      workDate: null,
+      workDateExceptionCode: null,
+      isDuplicate: false,
+    },
+    action: 'PUNCH_CREATED',
+    entityType: 'punch',
+    companyId,
+    actor,
+  });
+}
+
+/**
+ * FR-4.12: a wrong punch is fixed by editing it. Never by adding a cancelling
+ * punch, never by overriding the day. The caller recalculates BOTH the day it
+ * left and the day it moved to.
+ */
+export async function updatePunch(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const before = await getPunchById(id, companyId);
+  if (!before) return null;
+
+  const { reason, ...changes } = parse(punchPatchSchema, patch);
+
+  // FR-4.12: the same two refusals apply to where a punch MOVES to, not only
+  // to where it was created.
+  const target = await assertPunchTarget(
+    changes.userId ?? before.userId,
+    changes.at ?? before.at,
+    companyId,
+  );
+  if (!target) return null;
+
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    COLLECTIONS.PUNCHES,
+    id,
+    version,
+    {
+      $set: { ...changes, updatedAt: now, updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'PUNCH_UPDATED',
+    entityType: 'punch',
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+export async function softDeletePunch(
+  id,
+  reason,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  // FR-4.10: every soft delete states its reason, and the check belongs here
+  // rather than in the route, so no second caller can skip it.
+  parse(reasonSchema, { reason });
+
+  return softDeleteOwnedRecord(COLLECTIONS.PUNCHES, {
+    id,
+    reason,
+    version,
+    action: 'PUNCH_SOFT_DELETED',
+    entityType: 'punch',
+    companyId,
+    actor,
+  });
+}
+
+/**
+ * The engine's own write-back. Derived values only — a resolved work date, a
+ * duplicate flag — so it deliberately writes no audit record and bumps no
+ * version: nobody decided this, and a version bump would fire a spurious 409
+ * at an administrator holding the punch (§6, §19.3).
+ */
+export async function setPunchDerivedFields(
+  id,
+  { workDate, workDateExceptionCode, isDuplicate },
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+
+  await db
+    .collection(COLLECTIONS.PUNCHES)
+    .updateOne(
+      { _id: new ObjectId(id), companyId },
+      { $set: { workDate, workDateExceptionCode, isDuplicate } },
+    );
+}
+
+// --- Day records -----------------------------------------------------------
+
+export async function getDayRecord(
+  userId,
+  date,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.DAY_RECORDS)
+    .findOne({ companyId, userId, date, deletedAt: null });
+}
+
+export async function listDayRecords({
+  userIds = null,
+  from,
+  to,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId, deletedAt: null, date: { $gte: from, $lte: to } };
+  if (userIds) filter.userId = { $in: userIds };
+
+  return db
+    .collection(COLLECTIONS.DAY_RECORDS)
+    .find(filter)
+    .sort({ date: 1, userId: 1 })
+    .toArray();
+}
+
+/** The scalar fields whose change makes a recalculation a real change. */
+const DAY_RECORD_COMPARED = ['teamId', 'shiftId', 'dayType'];
+
+const sameComputed = (a = {}, b = {}) => {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((key) => a[key] === b[key]);
+};
+
+/**
+ * Order carries no meaning in an exceptions list — it is a set of conclusions
+ * about the day, so a reordering is not a new conclusion (§27.2).
+ */
+const sameExceptions = (a = [], b = []) => {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((code, index) => code === right[index]);
+};
+
+/**
+ * §23.3 step 11 and §19.3's requirement on the caller: when nothing changed,
+ * write NOTHING. A spurious version bump would mint a fresh effectKey and let
+ * a re-run post the same movement twice, and would fire a stale-write 409 at
+ * anyone else holding the record.
+ *
+ * The override is never part of what this writes (I-6, FR-6.12) — it is set
+ * only by `setDayOverride`, and a recalculation refreshes `computed` beneath
+ * it without ever reading it.
+ */
+export async function upsertDayRecord(
+  { userId, date, teamId, shiftId, dayType, computed, exceptions },
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const existing = await getDayRecord(userId, date, companyId);
+  const now = new Date();
+
+  if (!existing) {
+    const doc = {
+      companyId,
+      userId,
+      date,
+      teamId,
+      shiftId,
+      dayType,
+      computed,
+      override: null,
+      exceptions,
+      version: 1,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const { insertedId } = await db
+      .collection(COLLECTIONS.DAY_RECORDS)
+      .insertOne(doc);
+
+    return { record: { ...doc, _id: insertedId }, changed: true };
+  }
+
+  const incoming = { teamId, shiftId, dayType };
+  const unchanged =
+    DAY_RECORD_COMPARED.every((field) => existing[field] === incoming[field]) &&
+    sameComputed(existing.computed, computed) &&
+    sameExceptions(existing.exceptions, exceptions);
+
+  if (unchanged) return { record: existing, changed: false };
+
+  const record = await db.collection(COLLECTIONS.DAY_RECORDS).findOneAndUpdate(
+    { _id: existing._id, companyId },
+    {
+      $set: { teamId, shiftId, dayType, computed, exceptions, updatedAt: now },
+      $inc: { version: 1 },
+    },
+    { returnDocument: 'after' },
+  );
+
+  return { record, changed: true };
+}
+
+/**
+ * P-23, P-24, P-25. FR-6.11: the new value sits BESIDE the engine's, with who,
+ * why and when. There is no separate override record and the computed block is
+ * never touched here.
+ */
+export async function setDayOverride(
+  userId,
+  date,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const before = await getDayRecord(userId, date, companyId);
+  if (!before) return null;
+
+  const { reason, ...values } = parse(dayOverrideSchema, input);
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    COLLECTIONS.DAY_RECORDS,
+    String(before._id),
+    version,
+    {
+      $set: {
+        override: {
+          ...values,
+          reason,
+          actorId: actor.userId,
+          actorName: actor.name,
+          at: now,
+        },
+        updatedAt: now,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'DAY_OVERRIDE_SET',
+    entityType: 'dayRecord',
+    entityId: String(before._id),
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+/** Removing a human decision is itself a decision, so it takes a reason too. */
+export async function clearDayOverride(
+  userId,
+  date,
+  reason,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const before = await getDayRecord(userId, date, companyId);
+  if (!before) return null;
+
+  parse(reasonSchema, { reason });
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    COLLECTIONS.DAY_RECORDS,
+    String(before._id),
+    version,
+    { $set: { override: null, updatedAt: now }, $inc: { version: 1 } },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'DAY_OVERRIDE_CLEARED',
+    entityType: 'dayRecord',
+    entityId: String(before._id),
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+// --- Recalculation inputs --------------------------------------------------
+
+/**
+ * §23.3 step 1: the team held ON that date, not the user's current one. A
+ * report of March must not change because someone moved team in June —
+ * FR-3.14 says a team move never rewrites history.
+ */
+export function resolveTeamOnDate(
+  teamAssignments,
+  date,
+  fallbackTeamId = null,
+) {
+  const covering = teamAssignments.find(
+    (assignment) =>
+      assignment.effectiveFrom <= date &&
+      (assignment.effectiveTo === null || assignment.effectiveTo >= date),
+  );
+
+  return covering?.teamId ?? fallbackTeamId ?? null;
+}
+
+/** FR-2.10: an untracked user receives no day records, so none is recalculated. */
+export async function listTrackedUserIds({
+  teamId = null,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId, deletedAt: null, tracked: true };
+  if (teamId) filter.teamId = teamId;
+
+  const users = await db
+    .collection(COLLECTIONS.USERS)
+    .find(filter, { projection: { _id: 1 } })
+    .toArray();
+
+  return users.map((user) => String(user._id));
+}
+
+/**
+ * The first and last dates this user has any attendance activity on.
+ *
+ * An open-ended recalculation range has to stop somewhere. "From this date
+ * forward", which a team move or policy change produces (FR-3.14), needs an
+ * end; a policy edit with no effective date at all needs both. There is
+ * nothing to recompute outside the span of what was actually recorded.
+ *
+ * Deriving the bounds from the data rather than from the clock also keeps the
+ * result deterministic, which NFR-8 requires of a re-run over a past period.
+ */
+export async function activityDateRange(
+  userId,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+
+  const edge = async (collection, field, direction) => {
+    const [row] = await db
+      .collection(collection)
+      .find({ companyId, userId, [field]: { $ne: null } })
+      .sort({ [field]: direction })
+      .limit(1)
+      .toArray();
+
+    return row?.[field] ?? null;
+  };
+
+  const newest = (collection, field) => edge(collection, field, -1);
+  const oldest = (collection, field) => edge(collection, field, 1);
+
+  /**
+   * A punch's work date is resolved BY a recalculation, so a punch that has
+   * never been through one carries none — and bounding the range by work date
+   * alone would skip the very punches an open-ended run exists to pick up. Its
+   * instant is the fallback, and a day is added because a shift in a timezone
+   * ahead of UTC can carry a punch into the following work date.
+   */
+  const punchEdge = async (direction) => {
+    const [row] = await db
+      .collection(COLLECTIONS.PUNCHES)
+      .find({ companyId, userId, deletedAt: null })
+      .sort({ at: direction })
+      .limit(1)
+      .toArray();
+
+    return row?.at ?? null;
+  };
+
+  const newestPunch = await punchEdge(-1);
+  const oldestPunch = await punchEdge(1);
+
+  const upper = [
+    await newest(COLLECTIONS.DAY_RECORDS, 'date'),
+    await newest(COLLECTIONS.PUNCHES, 'workDate'),
+    await newest(COLLECTIONS.LEAVE_RECORDS, 'date'),
+    newestPunch ? format(addDays(newestPunch, 1), 'yyyy-MM-dd') : null,
+  ].filter(Boolean);
+
+  const lower = [
+    await oldest(COLLECTIONS.DAY_RECORDS, 'date'),
+    await oldest(COLLECTIONS.PUNCHES, 'workDate'),
+    await oldest(COLLECTIONS.LEAVE_RECORDS, 'date'),
+    oldestPunch ? format(subDays(oldestPunch, 1), 'yyyy-MM-dd') : null,
+  ].filter(Boolean);
+
+  return {
+    first: lower.length === 0 ? null : lower.sort()[0],
+    last: upper.length === 0 ? null : upper.sort().at(-1),
+  };
+}
+
+/**
+ * The shape `resolveWorkDate` documents: each assignment carrying its shift,
+ * and each shift carrying its TEAM's midnight-crossing window as
+ * `crossingWindowHours`. §8.2 — the engine never reads policy itself, so the
+ * value is resolved and attached here.
+ *
+ * An unset window stays `undefined` rather than defaulting to a number: §8.3
+ * and DC-6 require the missing configuration to surface as
+ * SHIFT_CONFIGURATION_INCOMPLETE, and a default would hide it behind a guess.
+ */
+export async function resolveShiftAssignmentsWithShifts(
+  userId,
+  { user = null, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const stored = await listShiftAssignments(userId, companyId);
+
+  /**
+   * A user who has never been re-assigned has no assignment rows at all — the
+   * shift on their record has applied since the day they joined. Synthesising
+   * that row is the same convention `moveUserTeam` already follows when it
+   * backfills a team a user held before assignments were recorded; without it
+   * the engine would raise NO_SHIFT_ASSIGNED for someone who plainly has one.
+   */
+  const owner = user ?? (await getUserById(userId, companyId));
+  const assignments =
+    stored.length > 0
+      ? stored
+      : owner?.shiftId
+        ? [
+            {
+              userId,
+              shiftId: owner.shiftId,
+              effectiveFrom: owner.dateOfJoining,
+              effectiveTo: null,
+            },
+          ]
+        : [];
+
+  if (assignments.length === 0) return [];
+
+  const db = await getDb();
+  const shiftIds = [
+    ...new Set(assignments.map((assignment) => assignment.shiftId)),
+  ]
+    .filter((id) => ObjectId.isValid(id))
+    .map((id) => new ObjectId(id));
+
+  const shifts = await db
+    .collection(COLLECTIONS.SHIFTS)
+    .find({ companyId, _id: { $in: shiftIds } })
+    .toArray();
+
+  const shiftById = new Map(shifts.map((shift) => [String(shift._id), shift]));
+  const teamIds = [...new Set(shifts.map((shift) => shift.teamId))];
+
+  const policies = await db
+    .collection(COLLECTIONS.TEAM_POLICY)
+    .find({ companyId, teamId: { $in: teamIds } })
+    .toArray();
+
+  const windowByTeam = new Map(
+    policies.map((policy) => [
+      policy.teamId,
+      policy.midnightCrossingWindowHours,
+    ]),
+  );
+
+  return assignments
+    .map((assignment) => {
+      const shift = shiftById.get(String(assignment.shiftId));
+      if (!shift) return null;
+
+      return {
+        ...assignment,
+        shift: {
+          ...shift,
+          crossingWindowHours: windowByTeam.get(shift.teamId),
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Everything one user's recalculation reads, in one round trip per collection
+ * rather than one per date. NFR-3 puts a full-company month under two seconds,
+ * which a per-date query cannot meet.
+ */
+export async function loadRecalculationInputs(
+  userId,
+  { from, to },
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  const user = await getUserById(userId, companyId);
+  if (!user) return null;
+
+  const tenures = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId, deletedAt: null })
+    .sort({ startDate: 1 })
+    .toArray();
+
+  const teamAssignments = await listTeamAssignments(userId, companyId);
+  const shiftAssignments = await resolveShiftAssignmentsWithShifts(userId, {
+    user,
+    companyId,
+  });
+
+  const teamIds = [
+    ...new Set([
+      ...teamAssignments.map((assignment) => assignment.teamId),
+      user.teamId,
+    ]),
+  ].filter(Boolean);
+
+  const policyByTeam = {};
+  const holidaysByTeam = {};
+  const weeklyOffByTeam = {};
+
+  for (const teamId of teamIds) {
+    policyByTeam[teamId] = (await getTeamPolicy(teamId, companyId)) ?? {};
+    holidaysByTeam[teamId] = (await listHolidays(teamId, { companyId })).items;
+    weeklyOffByTeam[teamId] = await getWeeklyOffPattern(teamId, companyId);
+  }
+
+  const dayRecords = await listDayRecords({
+    userIds: [userId],
+    from,
+    to,
+    companyId,
+  });
+
+  const leaveRecords = await db
+    .collection(COLLECTIONS.LEAVE_RECORDS)
+    .find({
+      companyId,
+      userId,
+      date: { $gte: from, $lte: to },
+      deletedAt: null,
+    })
+    .toArray();
+
+  return {
+    user,
+    tenures,
+    teamAssignments,
+    shiftAssignments,
+    dayRecords,
+    leaveRecords,
+    policyByTeam,
+    holidaysByTeam,
+    weeklyOffByTeam,
+  };
+}
+
+/**
+ * S-10's whole read, in one call: every tracked member of one team on one
+ * date, each with their day record, that date's punches, and the shift they
+ * held on it.
+ *
+ * FR-2.10: untracked colleagues are excluded and COUNTED, because the screen
+ * has to state the exclusion rather than leave it silent.
+ */
+export async function loadAttendanceGrid(
+  teamId,
+  date,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+
+  const members = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, teamId, deletedAt: null })
+    .sort({ fullName: 1 })
+    .toArray();
+
+  const tracked = members.filter((member) => member.tracked);
+  const userIds = tracked.map((member) => String(member._id));
+
+  const [records, punches] = await Promise.all([
+    listDayRecords({ userIds, from: date, to: date, companyId }),
+    listPunchesForWorkDate(date, { userIds, includeDeleted: true, companyId }),
+  ]);
+
+  const recordByUser = new Map(
+    records.map((record) => [record.userId, record]),
+  );
+
+  const punchesByUser = new Map();
+  for (const punch of punches) {
+    punchesByUser.set(punch.userId, [
+      ...(punchesByUser.get(punch.userId) ?? []),
+      punch,
+    ]);
+  }
+
+  const rows = [];
+
+  for (const member of tracked) {
+    const userId = String(member._id);
+    const record = recordByUser.get(userId);
+
+    // D-15: a date nothing has ever touched carries no record, and a row
+    // without one has nothing to show. The caller materialises first.
+    if (!record) continue;
+
+    const assignments = await resolveShiftAssignmentsWithShifts(userId, {
+      user: member,
+      companyId,
+    });
+
+    const covering = assignments.find(
+      (assignment) =>
+        assignment.effectiveFrom <= date &&
+        (assignment.effectiveTo === null || assignment.effectiveTo >= date),
+    );
+
+    rows.push({
+      user: member,
+      dayRecord: record,
+      punches: punchesByUser.get(userId) ?? [],
+      shift: covering?.shift ?? null,
+    });
+  }
+
+  return { rows, untrackedCount: members.length - tracked.length };
+}
+
+// --- The ledger ------------------------------------------------------------
+
+export async function listLedgerEntriesForSource(
+  sourceType,
+  sourceId,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .find({ companyId, sourceType, sourceId: String(sourceId) })
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * §19.1. Appends movements. There is deliberately no function here that
+ * updates one — FR-6.8 and DC-3 make the ledger strictly append-only, and a
+ * movement is cancelled only by its reverse.
+ *
+ * A duplicate-key failure on `effectKey` is swallowed, and ONLY that: the
+ * index firing means this exact effect at this exact source version is already
+ * recorded, so refusing the second insert is the correct outcome rather than
+ * an error (§19.3 — defence in depth behind `reconcileLedger`). Every other
+ * write failure propagates, because swallowing one would hide a real defect
+ * behind a tidy response.
+ */
+export async function postLedgerEntries(
+  entries,
+  { sourceType, sourceId, sourceVersion, userId, date, actor, reason = null },
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (entries.length === 0) return [];
+
+  const db = await getDb();
+  const now = new Date();
+  const written = [];
+
+  for (const entry of entries) {
+    const doc = {
+      companyId,
+      userId,
+      date,
+      entryType: entry.entryType,
+      leaveType: entry.leaveType,
+      amount: entry.amount,
+      rule: entry.rule,
+      sourceType,
+      sourceId: String(sourceId),
+      sourceVersion,
+      effectKey: ledgerEffectKey({
+        sourceType,
+        sourceId: String(sourceId),
+        sourceVersion,
+        entryType: entry.entryType,
+        leaveType: entry.leaveType,
+      }),
+      reversalOf: null,
+      actorId: actor.userId,
+      actorName: actor.name,
+      reason,
+      createdAt: now,
+    };
+
+    try {
+      const { insertedId } = await db
+        .collection(COLLECTIONS.LEDGER_ENTRIES)
+        .insertOne(doc);
+      written.push({ ...doc, _id: insertedId });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      // Already recorded at this source version. Correct, not an error.
+    }
+  }
+
+  return written;
+}
+
+/**
+ * §19.4. The original is untouched; the reverse is appended. S-14 shows both,
+ * with the reversal marked, which is how NFR-11 — "why is this number what it
+ * is" — stays answerable.
+ *
+ * A reversal deliberately carries NO `effectKey`: a movement may legitimately
+ * be reversed and re-applied, and the partial unique index excludes it by the
+ * field's absence, since `$ne` is not permitted in a partialFilterExpression
+ * (§19.3).
+ */
+export async function reverseLedgerEntries(
+  entries,
+  { actor, reason },
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (entries.length === 0) return [];
+
+  parse(reasonSchema, { reason });
+  const db = await getDb();
+  const now = new Date();
+
+  const docs = entries.map((entry) => ({
+    companyId,
+    userId: entry.userId,
+    date: entry.date,
+    entryType: LEDGER_ENTRY_TYPE.REVERSAL,
+    leaveType: entry.leaveType,
+    amount: -entry.amount,
+    rule: entry.rule,
+    sourceType: entry.sourceType,
+    sourceId: entry.sourceId,
+    sourceVersion: entry.sourceVersion,
+    reversalOf: entry._id,
+    actorId: actor.userId,
+    actorName: actor.name,
+    reason,
+    createdAt: now,
+  }));
+
+  const { insertedIds } = await db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .insertMany(docs);
+
+  return docs.map((doc, index) => ({ ...doc, _id: insertedIds[index] }));
+}
+
+// --- Leave records ---------------------------------------------------------
+
+export async function getLeaveRecordById(id, companyId = DEFAULT_COMPANY_ID) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.LEAVE_RECORDS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+export async function getLeaveRecordsForUserDates(
+  userId,
+  dates,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.LEAVE_RECORDS)
+    .find({ companyId, userId, date: { $in: dates }, deletedAt: null })
+    .sort({ date: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * P-26, D-9, D-16. One date at a time (D-10): a range-recording convenience
+ * would call this once per date and needs no change to the shape.
+ */
+export async function createLeaveRecord(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(leaveRecordSchema, input);
+  const db = await getDb();
+
+  const clash = await db.collection(COLLECTIONS.LEAVE_RECORDS).findOne({
+    companyId,
+    userId: data.userId,
+    date: data.date,
+    deletedAt: null,
+  });
+
+  if (clash) {
+    throw new ValidationError(
+      `${clash.leaveType} leave is already recorded for ${data.date}. Cancel that record before recording another.`,
+    );
+  }
+
+  try {
+    return await createOwnedRecord(COLLECTIONS.LEAVE_RECORDS, {
+      data: {
+        ...data,
+        halfDayPeriod: data.halfDayPeriod ?? null,
+        actorId: actor.userId,
+        actorName: actor.name,
+      },
+      action: 'LEAVE_RECORDED',
+      entityType: 'leaveRecord',
+      companyId,
+      actor,
+    });
+  } catch (error) {
+    return rethrowDuplicateAs(
+      error,
+      `Leave is already recorded for ${data.date}. Cancel that record before recording another.`,
+    );
+  }
+}
+
+/**
+ * Soft deleted rather than removed, and the caller recalculates the date so
+ * the LEAVE_AVAILED entry it produced is REVERSED — never edited, never
+ * deleted (FR-6.8, I-1).
+ */
+export async function cancelLeaveRecord(
+  id,
+  reason,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  parse(reasonSchema, { reason });
+
+  return softDeleteOwnedRecord(COLLECTIONS.LEAVE_RECORDS, {
+    id,
+    reason,
+    version,
+    action: 'LEAVE_CANCELLED',
+    entityType: 'leaveRecord',
+    companyId,
+    actor,
+  });
 }
 
 // --- Seeding ---------------------------------------------------------------

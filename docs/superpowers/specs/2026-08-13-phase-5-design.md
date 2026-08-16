@@ -23,9 +23,9 @@ and `npm run build` green before merge).
 | # | Branch | Contains | Why here |
 | - | ------ | -------- | -------- |
 | 1 | `phase-5-engine-core` | `engine/workDate.js`, `duration.js`, `classify.js`, `punctuality.js`, `ladders.js` (`deductionFor`) | Pure functions, zero DB, zero screens (§32 step 2). Everything downstream calls these. |
-| 2 | `phase-5-m4a-attendance-capture` | Punches CRUD, `dayRecords`, minimal `engine/ledger.js` (post + reconcile), `recalculateDays` real body, `S-10`, `S-12`, `P-21`–`P-25`, `S-07`'s Attendance tab | Needs branch 1's pure functions; produces the day records everything else reads |
+| 2 | `phase-5-m4a-attendance-capture` | Punches CRUD, `dayRecords`, `leaveRecords` and `P-26` (`D-16`), minimal `engine/ledger.js` (post + reconcile), `recalculateDays` real body, `S-10`, `S-12`, `P-21`–`P-25`, `S-07`'s Attendance tab | Needs branch 1's pure functions; produces the day records everything else reads |
 | 3 | `phase-5-m4b-attendance-overview-import` | `S-09`, `S-11` | Needs real day records from branch 2 to show or import against |
-| 4 | `phase-5-m5-ledger-balances` | `leaveRecords`, full `engine/ledger.js` replay, `engine/accrual.js`, entitlement crediting, `S-13`, `S-14`, `P-19`, `P-20`, `P-26`, `S-07`'s Leave tab | Needs branch 2's `recalculateDays` and ledger-posting machinery to extend |
+| 4 | `phase-5-m5-ledger-balances` | Full `engine/ledger.js` replay, `engine/accrual.js`, entitlement crediting, `S-13`, `S-14`, `P-19`, `P-20`, `S-07`'s Leave tab | Needs branch 2's `recalculateDays` and ledger-posting machinery to extend |
 
 Per branch: contract tests first (`CLAUDE.md`, `ARCHITECTURE.md` §9.3), every
 worked example in `ARCHITECTURE.md` §13–§18 written as a literal test case
@@ -173,6 +173,63 @@ member's record for that date exists, `ABSENT` included, in one bounded call
 (one team, one date, matching `D-2`'s "synchronous and scoped"). A date nobody
 has ever touched has no record; `S-09` and reports exclude it rather than
 displaying a materialised `ABSENT`. No proactive backfill exists this phase.
+
+### D-16 · `leaveRecords` is built in Branch 2, not Branch 4
+
+Ahmar's decision, 2026-08-16, amending §1's branch table above.
+
+`P-23` (set day status) offers `LEAVE`, and per `D-9` a leave fact is a genuine
+engine input rather than an override. Shipping `S-10`/`S-12` with a status
+whose ledger effect arrives two branches later would put a day reading `LEAVE`
+beside a balance that disagrees — exactly the drift `I-2` and `DC-4` exist to
+prevent.
+
+The `leaveRecords` collection, its single-date write path (`P-26`) and its
+`LEAVE_AVAILED` posting therefore land in Branch 2. **Branch 4 keeps** balance
+replay, accrual, entitlement crediting (`D-12`), `S-13`, `S-14`, `P-19` and
+`P-20`.
+
+*If overruled:* `P-23` drops `LEAVE` from its menu and the collection goes
+unused until Branch 4 — nothing else references it except the single lookup
+inside `recalculateDays`.
+
+### D-17 · Reconciliation matches on effect, not on source version
+
+`ARCHITECTURE.md` §19.3 puts `sourceVersion` in the `effectKey` so a genuine
+correction is not refused by the unique index. It does **not** follow that
+reconciliation should treat a version bump as a changed effect. If it did, any
+change to a day record — a `lateMinutes` correction leaving the deduction
+untouched — would reverse and re-post an identical movement, and `S-14` would
+fill with pairs cancelling to nothing. `NFR-11` needs that ledger to stay
+readable as the explanation of a number.
+
+**Decision:** `reconcileLedger` matches a desired entry to an existing one on
+`(entryType, leaveType, amount)`. An existing entry is reversed only when the
+day no longer implies it, or implies it at a different amount. A re-posted
+entry carries the current version in its `effectKey`, so the index still
+permits the legitimate re-post and still refuses a true double-post.
+
+*If overruled:* add `sourceVersion` to `identity()` in `engine/ledger.js`. One
+line, one function.
+
+### D-18 · `recalculateDays` materialises lazily by default
+
+`D-15` says a day record is created the first time something touches the date.
+A range recalculation is not by itself such a touch — a policy edit covering a
+year must not mint 365 `ABSENT` records per user.
+
+**Decision:** `recalculateDays(userId, dateRange, options)` refreshes only
+dates that **already have a day record**, or that carry a live punch or leave
+record. `options.materialiseUsers` opts a bounded set of users into creating
+the record for an untouched date, which is what `S-10` passes when an
+`OFFICE_ADMIN` opens one team on one date (`D-15`'s one bounded call).
+
+An open-ended range resolves its bounds from that user's recorded activity
+rather than from the clock, so a re-run over a past period stays deterministic
+(`NFR-8`).
+
+*If overruled:* remove the filter in `datesToVisit`. Every date in range then
+materialises, and `D-15` is what changes with it.
 
 ---
 

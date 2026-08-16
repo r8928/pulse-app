@@ -44,7 +44,7 @@ export async function PUT(request, { params }) {
     const pattern = await setWeeklyOffPattern(id, body, version, actor);
 
     // The day type of every date on this team changes with the pattern.
-    await recalculateDays(null, { from: null, to: null });
+    await recalculateDays(null, { from: null, to: null }, { teamId: id });
 
     return NextResponse.json(pattern);
   } catch (error) {

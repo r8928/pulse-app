@@ -55,7 +55,11 @@ export async function POST(request) {
 
     const created = await createHoliday(await request.json(), actor);
 
-    await recalculateDays(null, { from: created.date, to: created.date });
+    await recalculateDays(
+      null,
+      { from: created.date, to: created.date },
+      { teamId: created.teamId },
+    );
 
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

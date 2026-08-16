@@ -4,6 +4,7 @@ import { PERMISSIONS } from '../../../../constants/index.js';
 import {
   getRecordHistory,
   getUserById,
+  listDayRecords,
   listShiftAssignments,
   listShifts,
   listTeamAssignments,
@@ -23,15 +24,31 @@ export default async function UserDetailPage({ params }) {
 
   if (!user) notFound();
 
-  const [history, teams, shiftAssignments, teamAssignments, colleagues] =
-    await Promise.all([
-      getRecordHistory('user', id),
-      listTeams({ includeDeleted: true }),
-      listShiftAssignments(id),
-      listTeamAssignments(id),
-      // FR-2.4: only a serving colleague may be named as a replacement manager.
-      listUsers({ includeDeleted: false, pageSize: 1000 }),
-    ]);
+  const [
+    history,
+    teams,
+    shiftAssignments,
+    teamAssignments,
+    colleagues,
+    dayRecords,
+  ] = await Promise.all([
+    getRecordHistory('user', id),
+    listTeams({ includeDeleted: true }),
+    listShiftAssignments(id),
+    listTeamAssignments(id),
+    // FR-2.4: only a serving colleague may be named as a replacement manager.
+    listUsers({ includeDeleted: false, pageSize: 1000 }),
+    /**
+     * The attendance tab. Bounded to this user's employment period rather
+     * than unbounded: a five-year roster would otherwise load every day they
+     * ever worked to show the recent few (NFR-3, DC-10).
+     */
+    listDayRecords({
+      userIds: [id],
+      from: user.dateOfJoining,
+      to: user.dateOfLeaving ?? '9999-12-31',
+    }),
+  ]);
 
   // FR-3.3: shifts are per team, so the picker offers this user's team's.
   const shifts = user.teamId ? (await listShifts(user.teamId)).items : [];
@@ -87,6 +104,16 @@ export default async function UserDetailPage({ params }) {
         effectiveFrom: assignment.effectiveFrom,
         effectiveTo: assignment.effectiveTo ?? null,
       }))}
+      dayRecords={dayRecords
+        .slice(-30)
+        .reverse()
+        .map((record) => ({
+          _id: String(record._id),
+          date: record.date,
+          dayType: record.dayType,
+          computed: record.computed,
+          override: record.override,
+        }))}
       canWrite={Boolean(viewer.permissions[PERMISSIONS.USER_WRITE])}
     />
   );

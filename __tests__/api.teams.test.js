@@ -320,4 +320,95 @@ describe('/api/shifts and /api/holidays', () => {
 
     expect(response.status).toBe(400);
   });
+
+  it('recalculates only the team whose calendar changed (§23.4)', async () => {
+    admin();
+
+    const {
+      createPunch,
+      createShift,
+      createUser,
+      getDayRecord,
+      updateTeamPolicy,
+    } = await import('../database.js');
+    const { recalculateDays } = await import('../engine/recalculate.js');
+
+    const aTeamWithAWorkedDay = async (name, code) => {
+      const team = await createTeam({ name }, actor);
+
+      // §8.3: without a crossing window no work date can be resolved at all,
+      // so the punches below would belong to no day.
+      await updateTeamPolicy(
+        String(team._id),
+        { midnightCrossingWindowHours: 8, duplicatePunchWindowMinutes: 10 },
+        null,
+        actor,
+      );
+
+      const shift = await createShift(
+        {
+          teamId: String(team._id),
+          name: 'Days',
+          startTime: '09:00',
+          endTime: '18:00',
+          requiredDailyMinutes: 540,
+          graceMinutes: 30,
+          timezone: 'Asia/Karachi',
+        },
+        actor,
+      );
+      const user = await createUser(
+        {
+          fullName: name,
+          employeeCode: code,
+          employmentType: 'PERMANENT',
+          tracked: true,
+          loginEnabled: true,
+          role: ROLES.EMPLOYEE,
+          dateOfJoining: '2025-01-01',
+          teamId: String(team._id),
+          shiftId: String(shift._id),
+        },
+        actor,
+      );
+
+      for (const [type, at] of [
+        ['CHECK_IN', '2026-03-23T04:00:00.000Z'],
+        ['CHECK_OUT', '2026-03-23T13:00:00.000Z'],
+      ]) {
+        await createPunch(
+          { userId: String(user._id), type, at, source: 'FORM' },
+          actor,
+        );
+      }
+
+      await recalculateDays(String(user._id), {
+        from: '2026-03-23',
+        to: '2026-03-23',
+      });
+
+      return { teamId: String(team._id), userId: String(user._id) };
+    };
+
+    const affected = await aTeamWithAWorkedDay('Observers', 'H-001');
+    const other = await aTeamWithAWorkedDay('Working through', 'H-002');
+
+    await holidaysRoute.POST(
+      json({
+        teamId: affected.teamId,
+        date: '2026-03-23',
+        name: 'Pakistan Day',
+        type: HOLIDAY_TYPE.PUBLIC,
+      }),
+    );
+
+    // FR-3.7: each team keeps its own calendar, so the other team's day is
+    // untouched — still an ordinary working day.
+    expect((await getDayRecord(affected.userId, '2026-03-23')).dayType).toBe(
+      'HOLIDAY',
+    );
+    expect((await getDayRecord(other.userId, '2026-03-23')).dayType).toBe(
+      'WORKING',
+    );
+  });
 });

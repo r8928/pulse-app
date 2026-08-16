@@ -26,10 +26,11 @@ export async function PATCH(request, { params }) {
     }
 
     // Both dates matter: the one the holiday left and the one it moved to.
-    await recalculateDays(null, {
-      from: patch.date ?? updated.date,
-      to: updated.date,
-    });
+    await recalculateDays(
+      null,
+      { from: patch.date ?? updated.date, to: updated.date },
+      { teamId: updated.teamId },
+    );
 
     return NextResponse.json(updated);
   } catch (error) {

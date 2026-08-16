@@ -28,7 +28,11 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
     }
 
-    await recalculateDays(null, { from: removed.date, to: removed.date });
+    await recalculateDays(
+      null,
+      { from: removed.date, to: removed.date },
+      { teamId: removed.teamId },
+    );
 
     return NextResponse.json(removed);
   } catch (error) {

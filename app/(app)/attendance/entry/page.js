@@ -1,28 +1,120 @@
+import Alert from '@mui/material/Alert';
 import Stack from '@mui/material/Stack';
+import { format } from 'date-fns';
+import { AttendanceGrid } from '../../../../components/attendance/AttendanceGrid.jsx';
+import { AttendanceGridFilters } from '../../../../components/attendance/AttendanceGridFilters.jsx';
 import { PageHeader } from '../../../../components/PageHeader.jsx';
-import { ScreenStub } from '../../../../components/ScreenStub.jsx';
+import { PERMISSIONS } from '../../../../constants/index.js';
+import {
+  getTeamPolicy,
+  listTeams,
+  listTrackedUserIds,
+  loadAttendanceGrid,
+} from '../../../../database.js';
+import { recalculateDays } from '../../../../engine/recalculate.js';
+import { getSessionUser } from '../../../../session.js';
 
-export default function AttendanceEntryPage() {
+/**
+ * S-10. Server component: it reads the session and the data and hands both
+ * down as props (CLAUDE.md — the client leaf never reads the session).
+ *
+ * Opening the grid is what D-15 calls a touch: every tracked member of this
+ * team gets a record for this date, ABSENT included, in one bounded call. No
+ * other path in the system backfills, and nothing proactive exists.
+ */
+export default async function AttendanceEntryPage({ searchParams }) {
+  const params = await searchParams;
+  const viewer = await getSessionUser();
+
+  const teams = await listTeams({ includeDeleted: false, pageSize: 200 });
+  const teamId =
+    params?.teamId ?? viewer?.teamId ?? teams.items[0]?._id ?? null;
+  const date = params?.date ?? format(new Date(), 'yyyy-MM-dd');
+
+  const canWrite = Boolean(viewer?.permissions[PERMISSIONS.ATTENDANCE_WRITE]);
+
+  const header = (
+    <PageHeader
+      title='Daily attendance'
+      description='Enter and correct attendance for one team on one date. Untracked colleagues do not appear here — they receive no day records at all.'
+    />
+  );
+
+  if (!teamId) {
+    return (
+      <Stack spacing={3}>
+        {header}
+        <Alert severity='info'>
+          No team exists yet. A day cannot be classified without one: a team
+          carries the shifts, calendar and weekly-off pattern every record
+          resolves through.
+        </Alert>
+      </Stack>
+    );
+  }
+
+  if (canWrite) {
+    await recalculateDays(
+      null,
+      { from: date, to: date },
+      {
+        teamId: String(teamId),
+        materialiseUsers: await listTrackedUserIds({ teamId: String(teamId) }),
+        actor: { userId: viewer.userId, name: viewer.name },
+        reason: 'Attendance opened for this team and date',
+      },
+    );
+  }
+
+  const [{ rows, untrackedCount }, policy] = await Promise.all([
+    loadAttendanceGrid(String(teamId), date),
+    getTeamPolicy(String(teamId)),
+  ]);
+
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title='Daily attendance'
-        description='Enter and correct attendance for one team on one date. Built so a single day correction takes three clicks or fewer from home. Untracked users do not appear here — they receive no day records.'
+      {header}
+
+      <AttendanceGridFilters
+        teams={teams.items.map((team) => ({
+          _id: String(team._id),
+          name: team.name,
+        }))}
+        teamId={String(teamId)}
+        date={date}
       />
-      <ScreenStub
-        screenId='S-10'
-        specRefs={['FR-4.1', 'FR-4.9', 'FR-5.1', 'FR-5.2', 'NFR-1']}
-        filters={['Team', 'Date']}
-        columns={[
-          'Employee',
-          'Punches',
-          'Worked duration',
-          'Day type',
-          'Day status',
-          'Late minutes',
-          'Deduction and rule',
-          'Override',
-        ]}
+
+      <AttendanceGrid
+        rows={rows.map((row) => ({
+          user: {
+            _id: String(row.user._id),
+            fullName: row.user.fullName,
+            employeeCode: row.user.employeeCode,
+          },
+          dayRecord: {
+            _id: String(row.dayRecord._id),
+            date: row.dayRecord.date,
+            version: row.dayRecord.version,
+            dayType: row.dayRecord.dayType,
+            computed: row.dayRecord.computed,
+            override: row.dayRecord.override,
+            exceptions: row.dayRecord.exceptions ?? [],
+          },
+          punches: row.punches.map((punch) => ({
+            _id: String(punch._id),
+            type: punch.type,
+            at: punch.at.toISOString(),
+            isDuplicate: punch.isDuplicate,
+            deletedAt: punch.deletedAt ? punch.deletedAt.toISOString() : null,
+          })),
+          shift: row.shift
+            ? { _id: String(row.shift._id), timezone: row.shift.timezone }
+            : null,
+        }))}
+        date={date}
+        canWrite={canWrite}
+        leaveTypes={policy?.leaveTypes ?? []}
+        untrackedCount={untrackedCount}
       />
     </Stack>
   );

@@ -132,9 +132,13 @@ describe('UserDetail', () => {
     expect(screen.getByText(/in force today/i)).toBeInTheDocument();
   });
 
-  it('says the attendance tab is not built rather than showing an empty grid', async () => {
+  it('says the leave tab is not built rather than showing an empty grid', async () => {
+    // Attendance left this list in Phase 5; leave and balances arrive with the
+    // ledger's read surface.
     render(<UserDetail {...props} />);
-    await userEvent.click(screen.getByRole('tab', { name: 'Attendance' }));
+    await userEvent.click(
+      screen.getByRole('tab', { name: 'Leave and balances' }),
+    );
 
     expect(screen.getByText(/not implemented yet/i)).toBeInTheDocument();
   });
@@ -149,5 +153,36 @@ describe('UserDetail', () => {
         name: /soft delete the tenure starting 2026-01-05/i,
       }),
     ).toBeDisabled();
+  });
+
+  it('lists this user’s recent days, each linking to that day’s detail', async () => {
+    const dayRecords = [
+      {
+        _id: 'd1',
+        date: '2026-08-12',
+        dayType: 'WORKING',
+        computed: {
+          dayStatus: 'WFO',
+          workedMinutes: 482,
+          deduction: 0,
+        },
+        override: null,
+      },
+    ];
+    render(<UserDetail {...props} dayRecords={dayRecords} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Attendance' }));
+
+    expect(screen.getByText('8h 02m')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '2026-08-12' })).toHaveAttribute(
+      'href',
+      '/attendance/u1/2026-08-12',
+    );
+  });
+
+  it('says the attendance tab is empty rather than rendering a bare table', async () => {
+    render(<UserDetail {...props} dayRecords={[]} />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Attendance' }));
+
+    expect(screen.getByText(/no day records yet/i)).toBeInTheDocument();
   });
 });
