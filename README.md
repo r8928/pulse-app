@@ -54,7 +54,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture (`FR-4.x`) | Stub screen only |
-| Day classification (`FR-5.x`) | Not started |
+| Day classification (`FR-5.x`) | Engine core built; not yet wired to real attendance data |
 | Leave engine (`FR-6.x`), PTO and CTO (`FR-7.x`) | Not started |
 | Reporting (`FR-8.3`–`FR-8.5`), exceptions queue (`FR-8.6`) | Stub screens only |
 | Attendance Excel import (`S-11`) | Stub screen only |

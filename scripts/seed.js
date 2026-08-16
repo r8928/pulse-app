@@ -135,6 +135,11 @@ const employeeGrants = [
  * BR-9 seed profile B, as implemented in the old workbook and converted to
  * percentages. Absolute hour bands only made sense for a 9 hour day and broke
  * silently for any other shift length.
+ *
+ * The last row is flagged `didNotAttend: true` rather than matched by its
+ * zero-width clocked band, matching how `ctoApplicationLadder`'s equivalent
+ * row already works — `engine/ladders.js`'s `deductionFor` looks for the
+ * flag directly (design record D-14).
  */
 const leaveDeductionLadder = [
   {
@@ -164,6 +169,7 @@ const leaveDeductionLadder = [
     clockedFrom: 0,
     clockedTo: 0,
     deduction: 1,
+    didNotAttend: true,
   },
 ];
 

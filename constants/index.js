@@ -135,6 +135,30 @@ export const HOLIDAY_TYPE = Object.freeze({
   COMPANY: 'COMPANY',
 });
 
+/**
+ * FR-8.6, §27.1: the codes the engine writes into `dayRecord.exceptions`.
+ * Written starting Phase 5; read by the S-05 exceptions dashboard in Phase 6
+ * (ARCHITECTURE.md §27.2 — derived every recalculation, not accumulated).
+ */
+export const EXCEPTION_CODE = Object.freeze({
+  NO_SHIFT_ASSIGNED: 'NO_SHIFT_ASSIGNED',
+  PUNCH_OUTSIDE_SHIFT_WINDOW: 'PUNCH_OUTSIDE_SHIFT_WINDOW',
+  SHIFT_CONFIGURATION_INCOMPLETE: 'SHIFT_CONFIGURATION_INCOMPLETE',
+  MISSING_CHECK_IN: 'MISSING_CHECK_IN',
+  MISSING_CHECK_OUT: 'MISSING_CHECK_OUT',
+  IMPOSSIBLE_DURATION: 'IMPOSSIBLE_DURATION',
+});
+
+/**
+ * D-11 (docs/superpowers/specs/2026-08-13-phase-5-design.md). Which half of the
+ * shift a half-day leave record covers, so lateness and the short-day test are
+ * measured against the half the person was actually expected to work.
+ */
+export const HALF_DAY_PERIOD = Object.freeze({
+  MORNING: 'MORNING',
+  AFTERNOON: 'AFTERNOON',
+});
+
 // --- Ledger ----------------------------------------------------------------
 
 /**

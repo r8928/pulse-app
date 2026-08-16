@@ -38,4 +38,5 @@ Thumbs.db
 
 # local agent config
 .claude/settings.local.json
+.claude/worktrees/
 .impeccable/config.local.json
