@@ -126,7 +126,7 @@ export function ExceptionsDashboard({
         <Stack
           direction={{ xs: 'column', md: 'row' }}
           spacing={2}
-          alignItems={{ md: 'center' }}
+          sx={{ alignItems: { md: 'center' } }}
         >
           <TextField
             label='From'

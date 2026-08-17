@@ -1970,6 +1970,28 @@ from.
 - `NFR-3`: a full-company month at the `NFR-5` ceiling renders under 2 seconds
   at p95, **paged rather than materialised whole**.
 
+### 30.2 Why the calendar counts are not a `$group`
+
+`summariseAttendance` totals what the engine concluded **in the database**,
+because `NFR-3` puts a full-company month under two seconds. `FR-3.9`'s
+working-day and holiday counts cannot join it there: they depend on the team
+the user held on **each date**, which is per-user history rather than an
+aggregation over day records. A colleague who moved teams mid-period has two
+calendars over one range.
+
+So `engine/reports.js` joins the two — the aggregate for what happened,
+`countCalendarDays` for what was expected. `countCalendarDays` is pure and
+reuses `resolveDayType` rather than re-deriving one: a report that classified
+a date differently from the day record for that date is exactly the drift
+`NFR-8` forbids.
+
+### 30.3 The export takes the rows, not the query
+
+`P-43` exports the report **as currently filtered**. The rows on screen go up
+with the request rather than being re-queried server-side. A second query
+could return something the sender never saw, and nobody afterwards could tell
+which of the two was the real report.
+
 ## 31 M-9 · Audit
 
 **Phase:** `P4` — **delivered**, Phase 4 branch 4. Writing is `✔+`: the

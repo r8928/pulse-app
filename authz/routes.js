@@ -154,6 +154,18 @@ const ROUTE_RULES = [
     pattern: /^\/api\/leave-records(\/[^/]+)?$/,
     permission: PERMISSIONS.LEAVE_READ,
   },
+  // M-8. FR-8.1 splits these two: the annual summary is readable for any
+  // colleague, the builder and the export are not. Above the collection
+  // pattern, which would otherwise swallow both and hand them to report.build.
+  {
+    pattern: /^\/api\/reports\/annual$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
+  },
+  {
+    pattern: /^\/api\/reports(\/export)?$/,
+    permission: PERMISSIONS.REPORT_BUILD,
+  },
+
   // FR-2.11, §27. The queue reads on exceptions.read; each decision handler
   // asserts user.write, because a reduction soft deletes a user's own records.
   {

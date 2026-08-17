@@ -196,8 +196,7 @@ export function AttendanceGrid({
                     <Stack
                       direction='row'
                       spacing={1}
-                      alignItems='center'
-                      justifyContent='flex-end'
+                      sx={{ alignItems: 'center', justifyContent: 'flex-end' }}
                     >
                       {(record.exceptions ?? []).map((code) => (
                         <Typography

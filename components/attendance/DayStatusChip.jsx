@@ -70,7 +70,7 @@ export function DayStatusChip({ status, overridden = false }) {
   const { variant, icon: Icon, label } = PRESENTATION[status] ?? UNKNOWN;
 
   return (
-    <Stack spacing={0.5} alignItems='flex-start'>
+    <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
       <Chip variant={variant} icon={<Icon fontSize='small' />} label={label} />
       {overridden ? (
         <Typography variant='caption' color='text.secondary'>

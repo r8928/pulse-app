@@ -135,8 +135,7 @@ export function DayRecordDetail({
           <Stack
             direction='row'
             spacing={2}
-            justifyContent='space-between'
-            alignItems='flex-start'
+            sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
           >
             <Typography variant='h6'>Punches</Typography>
             {canWrite ? (
@@ -200,7 +199,7 @@ export function DayRecordDetail({
                         <Stack
                           direction='row'
                           spacing={1}
-                          justifyContent='flex-end'
+                          sx={{ justifyContent: 'flex-end' }}
                         >
                           <Button
                             type='button'

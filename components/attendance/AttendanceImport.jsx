@@ -15,6 +15,7 @@ import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { DATE_FORMATS } from '../../utils/attendanceImport.js';
+import { plural } from '../../utils/plural.js';
 
 /**
  * S-11. The biometric export, loaded in bulk.
@@ -96,7 +97,6 @@ export function AttendanceImport() {
 
   const acceptedCount = preview?.accepted.length ?? 0;
   const rejectedCount = preview?.rejected.length ?? 0;
-  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
   return (
     <Stack spacing={3}>
@@ -225,7 +225,7 @@ export function AttendanceImport() {
               </Stack>
             ) : null}
 
-            <Stack direction='row' spacing={2} alignItems='center'>
+            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
               <Button
                 type='button'
                 variant='contained'

@@ -117,7 +117,7 @@ export function LedgerTrace({
                   </TableCell>
 
                   <TableCell>
-                    <Stack spacing={0.5} alignItems='flex-start'>
+                    <Stack spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                       <span>{READABLE(entry.entryType)}</span>
                       {entry.reversalOf ? (
                         <Chip

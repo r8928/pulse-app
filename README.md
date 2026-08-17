@@ -62,7 +62,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | PTO and CTO (`FR-7.x`, `S-15`) | Done — proposed by the engine, decided only by a human |
 | Exceptions dashboard, all twelve queues (`FR-8.6`, `S-05`) | Done — derived live, so fixing the record clears the queue |
 | Employment-period reduction approval (`FR-2.11`, `P-05`) | Done — the soft delete never waits for it; only the stranded records do |
-| Reporting (`FR-8.3`–`FR-8.5`) | Stub screens only |
+| Report builder, annual summary, export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 
 Every collection exists already, so none of the above needs a migration.
