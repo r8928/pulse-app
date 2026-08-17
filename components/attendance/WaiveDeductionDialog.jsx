@@ -4,7 +4,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useState } from 'react';
 import { effective } from '../../utils/dayRecord.js';
-import { OverrideDialogShell } from './OverrideDialogShell.jsx';
+import { OverrideDialogShell } from '../OverrideDialogShell.jsx';
 
 /**
  * P-25. BR-8: OFFICE_ADMIN may override a late arrival, which then counts as

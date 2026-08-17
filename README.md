@@ -59,7 +59,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Day classification (`FR-5.x`) | Done — engine, ledger posting and both screens |
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done |
 | Leave engine (`FR-6.x`): entitlements, proration, carry forward | Done |
-| PTO and CTO (`FR-7.x`) | Not started — Phase 6 |
+| PTO and CTO (`FR-7.x`, `S-15`) | Done — proposed by the engine, decided only by a human |
 | Reporting (`FR-8.3`–`FR-8.5`), exceptions queue (`FR-8.6`) | Stub screens only |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 

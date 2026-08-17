@@ -1,3 +1,4 @@
+import { format, subDays } from 'date-fns';
 import { describe, expect, it } from 'vitest';
 import {
   HALF_DAY_PERIOD,
@@ -13,14 +14,18 @@ import {
   createShift,
   createTeam,
   createUser,
+  getCtoApplicationForDate,
   getDayRecord,
+  getPtoAwardForDate,
   listLedgerEntriesForSource,
   setDayOverride,
   setWeeklyOffPattern,
   softDeletePunch,
   updatePunch,
   updateTeamPolicy,
+  upsertPtoCandidate,
 } from '../database.js';
+import { approvePtoAward } from '../engine/pto.js';
 import { recalculateDays } from '../engine/recalculate.js';
 import { useTestDatabase } from '../test/mongo.js';
 
@@ -620,6 +625,177 @@ describe('recalculateDays', () => {
       await recalculateDays(userId, { from: '2026-09-01', to: '2026-09-30' }),
     ).toEqual({
       recalculated: 0,
+    });
+  });
+
+  describe('step 9 — proposing PTO and CTO candidates (D-20, D-21)', () => {
+    // 2026-08-15 is a Saturday — weekly off under this fixture's [0, 6]
+    // pattern — so any punch on it makes the status HOLIDAY_WORK (§16).
+
+    it('proposes a PENDING PTO candidate for a full HOLIDAY_WORK day (BR-19)', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:00:00.000Z');
+
+      await recalculateDays(userId, oneDay('2026-08-15'));
+
+      const candidate = await getPtoAwardForDate(userId, '2026-08-15');
+      expect(candidate.status).toBe('PENDING');
+      expect(candidate.rule).toBe('BR-19');
+      expect(candidate.proposedAmount).toBe(1);
+    });
+
+    it('posts nothing to the ledger for a PENDING candidate (FR-7.1)', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:00:00.000Z');
+
+      await recalculateDays(userId, oneDay('2026-08-15'));
+
+      expect(await ledgerFor(userId, '2026-08-15')).toEqual([]);
+    });
+
+    it('proposes BR-20 when the next working day is also fully worked', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      // Saturday, worked in full.
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:00:00.000Z');
+      // Monday 2026-08-17 — the next WORKING day — also worked in full.
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-17T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-17T13:00:00.000Z');
+
+      await recalculateDays(userId, { from: '2026-08-15', to: '2026-08-17' });
+
+      const candidate = await getPtoAwardForDate(userId, '2026-08-15');
+      expect(candidate.rule).toBe('BR-20');
+      expect(candidate.proposedAmount).toBe(2);
+    });
+
+    it('re-running the same recalculation changes nothing (I-9)', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:00:00.000Z');
+
+      await recalculateDays(userId, oneDay('2026-08-15'));
+      const first = await getPtoAwardForDate(userId, '2026-08-15');
+
+      await recalculateDays(userId, oneDay('2026-08-15'));
+      const second = await getPtoAwardForDate(userId, '2026-08-15');
+
+      expect(second.version).toBe(first.version);
+    });
+
+    it('updates a PENDING candidate in place when a correction changes the day', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T04:00:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T08:00:00.000Z'); // 4h — half day
+
+      await recalculateDays(userId, oneDay('2026-08-15'));
+      expect((await getPtoAwardForDate(userId, '2026-08-15')).rule).toBe(
+        'BR-18',
+      );
+
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-15T08:30:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:30:00.000Z'); // now 540 min total — a full day
+      await recalculateDays(userId, oneDay('2026-08-15'));
+
+      const updated = await getPtoAwardForDate(userId, '2026-08-15');
+      expect(updated.rule).toBe('BR-19');
+    });
+
+    it('proposes a PENDING CTO candidate for a sufficiently late arrival (BR-22 to BR-25)', async () => {
+      const { userId } = await aTrackedUserOnADayShift({
+        ctoApplicationLadder: [
+          { rule: 'BR-22', latenessFrom: 22, latenessTo: 44, apply: 0.25 },
+          { rule: 'BR-23', latenessFrom: 44, latenessTo: 67, apply: 0.5 },
+          { rule: 'BR-24', latenessFrom: 67, latenessTo: null, apply: 0.75 },
+          {
+            rule: 'BR-25',
+            latenessFrom: null,
+            latenessTo: null,
+            apply: 1,
+            didNotAttend: true,
+          },
+        ],
+      });
+      // 150 late minutes of 540 required = 27.8% — inside BR-22's 22–44% band.
+      await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-12T06:30:00.000Z');
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-12T13:00:00.000Z');
+
+      await recalculateDays(userId, oneDay('2026-08-12'));
+
+      const candidate = await getCtoApplicationForDate(userId, '2026-08-12');
+      expect(candidate.status).toBe('PENDING');
+      expect(candidate.rule).toBe('BR-22');
+    });
+
+    it('withdraws a candidate the day no longer implies, without deleting it', async () => {
+      const { userId } = await aTrackedUserOnADayShift();
+      const late = await punch(
+        userId,
+        PUNCH_TYPE.CHECK_IN,
+        '2026-08-15T04:00:00.000Z',
+      );
+      await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-15T13:00:00.000Z');
+      await recalculateDays(userId, oneDay('2026-08-15'));
+      expect(await getPtoAwardForDate(userId, '2026-08-15')).not.toBeNull();
+
+      // Correct the punch onto an ordinary Wednesday — no longer HOLIDAY_WORK.
+      await updatePunch(
+        String(late._id),
+        {
+          at: '2026-08-12T04:00:00.000Z',
+          reason: 'Recorded on the wrong date',
+        },
+        late.version,
+        actor,
+      );
+      await recalculateDays(userId, { from: '2026-08-12', to: '2026-08-15' });
+
+      // getPtoAwardForDate excludes only DECLINED candidates; a withdrawn
+      // PENDING one still has a status of PENDING, so it is still returned —
+      // with the flag that says the day no longer implies it.
+      const stored = await getPtoAwardForDate(userId, '2026-08-15');
+      expect(stored.withdrawn).toBe(true);
+    });
+  });
+
+  describe('PTO expiry sweep (D-24)', () => {
+    it('posts PTO_EXPIRY for an approved award past its expiry, before recalculating', async () => {
+      const { userId } = await aTrackedUserOnADayShift({ ptoValidityDays: 30 });
+
+      // Earned exactly ptoValidityDays ago: the natural expiry is today, so
+      // approving it doesn't trigger FR-7.3's late-approval extension — see
+      // __tests__/engine.pto.test.js for why this boundary matters.
+      const earnedOn = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+      const candidate = await upsertPtoCandidate(
+        userId,
+        earnedOn,
+        {
+          action: 'CREATE',
+          patch: { status: 'PENDING', rule: 'BR-19', amount: 1 },
+        },
+        actor,
+      );
+      const award = await approvePtoAward(
+        String(candidate._id),
+        { amount: 1, reason: 'Approved' },
+        candidate.version,
+        actor,
+      );
+
+      // Nothing has looked at a date past the award's expiry since it was
+      // approved — recalculateDays is that first look (D-24), for a
+      // completely unrelated date.
+      await recalculateDays(userId, oneDay('2026-08-12'));
+
+      const entries = await listLedgerEntriesForSource(
+        'ptoAward',
+        String(award._id),
+      );
+      expect(entries.some((entry) => entry.entryType === 'PTO_EXPIRY')).toBe(
+        true,
+      );
     });
   });
 });

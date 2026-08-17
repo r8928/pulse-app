@@ -5,8 +5,8 @@ import TextField from '@mui/material/TextField';
 import { useState } from 'react';
 import { DAY_STATUS, HALF_DAY_PERIOD } from '../../constants/index.js';
 import { effective } from '../../utils/dayRecord.js';
+import { OverrideDialogShell } from '../OverrideDialogShell.jsx';
 import { DayStatusChip } from './DayStatusChip.jsx';
-import { OverrideDialogShell } from './OverrideDialogShell.jsx';
 
 /**
  * P-23. FR-5.2 and FR-5.4.

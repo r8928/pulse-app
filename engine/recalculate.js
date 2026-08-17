@@ -14,6 +14,9 @@ import {
 } from '../constants/index.js';
 import {
   activityDateRange,
+  getCtoApplicationForDate,
+  getDayRecord,
+  getPtoAwardForDate,
   listLedgerEntriesForSource,
   listPunchesInInstantRange,
   listTrackedUserIds,
@@ -22,10 +25,13 @@ import {
   resolveTeamOnDate,
   reverseLedgerEntries,
   setPunchDerivedFields,
+  upsertCtoCandidate,
   upsertDayRecord,
+  upsertPtoCandidate,
 } from '../database.js';
 import { isWithinEmploymentPeriod } from '../utils/employment.js';
 import { leaveYearsTouchedBy } from './accrual.js';
+import { reconcileCandidate } from './candidates.js';
 import { resolveDayStatus, resolveDayType } from './classify.js';
 import {
   flagDuplicates,
@@ -34,8 +40,13 @@ import {
   workedMinutes as sumWorkedMinutes,
 } from './duration.js';
 import { ensureEntitlementCredited } from './entitlement.js';
-import { deductionFor } from './ladders.js';
+import {
+  deductionFor,
+  proposeCtoApplication,
+  proposePtoAward,
+} from './ladders.js';
 import { desiredEntriesForDay, reconcileLedger } from './ledger.js';
+import { ensurePtoExpiryPosted } from './pto.js';
 import {
   clockedPercent,
   earlyMinutes,
@@ -175,6 +186,15 @@ async function recalculateOneUser(userId, { from, to }, context) {
     await ensureEntitlementCredited(userId, year, context.actor);
   }
 
+  /**
+   * `D-24`: the same no-cron shape, for PTO expiry rather than a leave
+   * year's credit. One of the two places this guard runs from — the other
+   * is the balance-read path — so a day that spends PTO through step 9's
+   * candidates is measured against a balance that already excludes what
+   * has expired.
+   */
+  await ensurePtoExpiryPosted(userId, context.actor);
+
   const punches = await resolveWorkDatesForPunches(userId, inputs, {
     loadFrom,
     loadTo,
@@ -188,10 +208,32 @@ async function recalculateOneUser(userId, { from, to }, context) {
   );
 
   let changed = 0;
+  const computedByDate = new Map();
+
   for (const date of dates) {
-    if (await recalculateOneDay(date, { userId, inputs, punches, context })) {
-      changed += 1;
-    }
+    const outcome = await recalculateOneDay(date, {
+      userId,
+      inputs,
+      punches,
+      context,
+    });
+    computedByDate.set(date, outcome);
+    if (outcome.changed) changed += 1;
+  }
+
+  /**
+   * §12 pipeline step 9. Run as its own pass, AFTER every date's computed
+   * block is written, because `BR-20` needs to compare a day against the
+   * NEXT working day's own final outcome — which, within this very run, is
+   * often computed chronologically after the day being judged.
+   */
+  for (const date of dates) {
+    await proposeCandidatesForDay(date, {
+      userId,
+      inputs,
+      computedByDate,
+      context,
+    });
   }
 
   return changed;
@@ -377,7 +419,7 @@ async function recalculateOneDay(date, { userId, inputs, punches, context }) {
 
   // 7, 8. Punctuality and the ladder, both against the half actually worked
   // when the date is a half-day of leave (D-11).
-  const punctuality = measurePunctuality({
+  const { ctoLatenessPercent, attended, ...punctuality } = measurePunctuality({
     date,
     shift,
     policy,
@@ -405,10 +447,21 @@ async function recalculateOneDay(date, { userId, inputs, punches, context }) {
     exceptions: [...new Set(exceptions)],
   });
 
-  // 9. Reconcile the ledger against what this day now implies.
+  // Ledger reconciliation (§19, §23.3 step 9 of THAT list — the day's own
+  // movements, distinct from proposing PTO/CTO, which is §12's separate
+  // step 9 and runs in its own pass once every date here is settled).
   await reconcileOneDay(record, { policy, leaveRecord, context });
 
-  return changed;
+  return {
+    changed,
+    record,
+    shift,
+    policy,
+    dayType,
+    isFullDayLeave: dayStatus === DAY_STATUS.LEAVE && leaveRecord?.amount === 1,
+    ctoLatenessPercent,
+    attended,
+  };
 }
 
 async function applyDuplicateFlags(punchesOnDate, windowMinutes, exceptions) {
@@ -465,6 +518,11 @@ function measurePunctuality({
     deduction: 0,
     deductionRule: null,
     countsAsHolidayWork: false,
+    // Not persisted (stripped before `computed` is built) — carried only for
+    // step 9's CTO proposal, which needs the same figure the ladder itself
+    // was tested against rather than re-deriving it a second time.
+    ctoLatenessPercent: 0,
+    attended: livePunches.length > 0,
   };
 
   if (!shift) return empty;
@@ -538,6 +596,8 @@ function measurePunctuality({
     deduction,
     deductionRule: deductionRuleFor(ladder, deduction, attended),
     countsAsHolidayWork,
+    ctoLatenessPercent: latenessPercent(late, requirement.requiredMinutes),
+    attended,
   };
 }
 
@@ -575,4 +635,134 @@ async function reconcileOneDay(record, { policy, leaveRecord, context }) {
       actor: context.actor,
     });
   }
+}
+
+/** How far forward BR-20's lookahead searches before giving up (defensive). */
+const MAX_LOOKAHEAD_DAYS = 14;
+
+/**
+ * D-20: "the next working day" is the next date whose type is WORKING for
+ * the team held on it — not literally tomorrow. Walks forward resolving team
+ * and calendar per date, exactly as `recalculateOneDay` does for the date it
+ * is judging.
+ */
+function nextWorkingDate(date, inputs) {
+  let candidate = date;
+
+  for (let i = 0; i < MAX_LOOKAHEAD_DAYS; i += 1) {
+    candidate = format(addDays(parseISO(candidate), 1), 'yyyy-MM-dd');
+
+    const teamId = resolveTeamOnDate(
+      inputs.teamAssignments,
+      candidate,
+      inputs.user.teamId,
+    );
+    const type = resolveDayType(
+      candidate,
+      inputs.holidaysByTeam[teamId] ?? [],
+      inputs.weeklyOffByTeam[teamId] ?? null,
+    );
+
+    if (type === DAY_TYPE.WORKING) return candidate;
+  }
+
+  return null;
+}
+
+/**
+ * The `{ record, shift }` BR-20 needs for one date — from this same
+ * recalculation run if that date was also visited, else from storage. A date
+ * just beyond the range being recalculated commonly has an existing record
+ * from an earlier run; one that has never been touched has none (`D-15`),
+ * which is the same as not having worked it.
+ */
+async function resolveOutcomeForDate(date, { userId, inputs, computedByDate }) {
+  const inThisRun = computedByDate.get(date);
+  if (inThisRun) return { record: inThisRun.record, shift: inThisRun.shift };
+
+  const record = await getDayRecord(userId, date);
+  if (!record) return null;
+
+  const assignment = inputs.shiftAssignments.find(
+    (candidate) =>
+      candidate.effectiveFrom <= date &&
+      (candidate.effectiveTo === null || candidate.effectiveTo >= date),
+  );
+
+  return { record, shift: assignment?.shift ?? null };
+}
+
+/**
+ * `reconcileCandidate` is generic — `{ status, rule, amount }` — but a stored
+ * candidate keeps its PROPOSED figure under `proposedAmount`, distinctly from
+ * `approvedAmount`/`appliedAmount` (`D-21`). Comparing `existing.amount`
+ * against a stored document directly would always read `undefined`, forcing
+ * an `UPDATE` every single recalculation even when nothing changed — silently
+ * breaking `I-9`. This is the one translation between the two shapes.
+ */
+function asGenericCandidate(stored) {
+  if (!stored) return null;
+  return {
+    status: stored.status,
+    rule: stored.rule,
+    amount: stored.proposedAmount,
+    declinedSnapshot: stored.declinedSnapshot,
+  };
+}
+
+/**
+ * §12 pipeline step 9, §21–§22 (`D-20`, `D-21`, `D-22`). Proposes what the
+ * pure ladder functions conclude, reconciles against any existing candidate,
+ * and writes — never posting to the ledger (`FR-7.1`).
+ */
+async function proposeCandidatesForDay(
+  date,
+  { userId, inputs, computedByDate, context },
+) {
+  const today = computedByDate.get(date);
+  if (!today) return;
+
+  // PTO — needs the next working day's own outcome for BR-20.
+  const nextDate = nextWorkingDate(date, inputs);
+  const nextOutcome = nextDate
+    ? await resolveOutcomeForDate(nextDate, { userId, inputs, computedByDate })
+    : null;
+
+  const ptoDesired = today.shift
+    ? proposePtoAward({
+        dayRecord: today.record,
+        nextWorkingDayRecord: nextOutcome?.record ?? null,
+        shift: today.shift,
+        nextWorkingDayShift: nextOutcome?.shift ?? null,
+      })
+    : null;
+
+  const existingPto = await getPtoAwardForDate(userId, date);
+  const ptoVerdict = reconcileCandidate({
+    desired: ptoDesired,
+    existing: asGenericCandidate(existingPto),
+  });
+  await upsertPtoCandidate(userId, date, ptoVerdict, context.actor);
+
+  // CTO — the same day-type gate the deduction ladder itself runs under
+  // (§18): an ordinary working day, not a full day of leave.
+  const runsCtoLadder =
+    today.dayType === DAY_TYPE.WORKING && !today.isFullDayLeave;
+  const ctoLadder = today.policy.ctoApplicationLadder ?? [];
+
+  const ctoDesired =
+    runsCtoLadder && ctoLadder.length > 0
+      ? proposeCtoApplication({
+          latenessPercent: today.ctoLatenessPercent,
+          attended: today.attended,
+          ladder: ctoLadder,
+        })
+      : null;
+
+  const existingCto = await getCtoApplicationForDate(userId, date);
+  const ctoVerdict = reconcileCandidate({
+    desired: ctoDesired,
+    existing: asGenericCandidate(existingCto),
+  });
+  await upsertCtoCandidate(userId, date, ctoVerdict, context.actor);
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { deductionFor } from '../ladders.js';
+import {
+  deductionFor,
+  proposeCtoApplication,
+  proposePtoAward,
+} from '../ladders.js';
 
 // The exact BR-9 seed profile B shape from scripts/seed.js, after Task 10's
 // didNotAttend fix.
@@ -145,5 +149,183 @@ describe('deductionFor', () => {
       ladder: noFlagLadder,
     });
     expect(deduction).toBe(0);
+  });
+});
+
+const shift = { requiredDailyMinutes: 540 };
+
+const holidayWorkDay = (workedMinutes, counts = true) => ({
+  computed: {
+    dayStatus: 'HOLIDAY_WORK',
+    workedMinutes,
+    countsAsHolidayWork: counts,
+  },
+  override: null,
+});
+
+const wfoDay = (workedMinutes) => ({
+  computed: { dayStatus: 'WFO', workedMinutes, countsAsHolidayWork: false },
+  override: null,
+});
+
+describe('proposePtoAward (D-20)', () => {
+  it('proposes BR-18 for a HOLIDAY_WORK day under a full shift', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: holidayWorkDay(300),
+        nextWorkingDayRecord: null,
+        shift,
+        nextWorkingDayShift: null,
+      }),
+    ).toEqual({ rule: 'BR-18', amount: 0.5 });
+  });
+
+  it('proposes BR-19 for a HOLIDAY_WORK day of a full shift or more', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: holidayWorkDay(540),
+        nextWorkingDayRecord: null,
+        shift,
+        nextWorkingDayShift: null,
+      }),
+    ).toEqual({ rule: 'BR-19', amount: 1 });
+  });
+
+  it('proposes BR-20 instead of BR-19 when the next working day is also fully worked', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: holidayWorkDay(560),
+        nextWorkingDayRecord: wfoDay(545),
+        shift,
+        nextWorkingDayShift: shift,
+      }),
+    ).toEqual({ rule: 'BR-20', amount: 2 });
+  });
+
+  it('proposes BR-19 on its own when the next working day is only partly worked', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: holidayWorkDay(560),
+        nextWorkingDayRecord: wfoDay(300),
+        shift,
+        nextWorkingDayShift: shift,
+      }),
+    ).toEqual({ rule: 'BR-19', amount: 1 });
+  });
+
+  it('proposes nothing below the BR-27 threshold, even though the status reads HOLIDAY_WORK', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: holidayWorkDay(60, false),
+        nextWorkingDayRecord: null,
+        shift,
+        nextWorkingDayShift: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('proposes nothing for an ordinary working day', () => {
+    expect(
+      proposePtoAward({
+        dayRecord: wfoDay(540),
+        nextWorkingDayRecord: null,
+        shift,
+        nextWorkingDayShift: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('treats a missing next-working-day record as not worked, not as an error', () => {
+    expect(() =>
+      proposePtoAward({
+        dayRecord: holidayWorkDay(560),
+        nextWorkingDayRecord: null,
+        shift,
+        nextWorkingDayShift: shift,
+      }),
+    ).not.toThrow();
+  });
+});
+
+const ctoLadder = [
+  { rule: 'BR-22', latenessFrom: 22, latenessTo: 44, apply: 0.25 },
+  { rule: 'BR-23', latenessFrom: 44, latenessTo: 67, apply: 0.5 },
+  { rule: 'BR-24', latenessFrom: 67, latenessTo: null, apply: 0.75 },
+  {
+    rule: 'BR-25',
+    latenessFrom: null,
+    latenessTo: null,
+    apply: 1,
+    didNotAttend: true,
+  },
+];
+
+describe('proposeCtoApplication (BR-22 to BR-26)', () => {
+  it('proposes BR-22 just over its lower bound', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 22.1,
+        attended: true,
+        ladder: ctoLadder,
+      }),
+    ).toEqual({ rule: 'BR-22', amount: 0.25 });
+  });
+
+  it('treats the band boundary as inclusive on the upper end, exclusive on the lower', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 22,
+        attended: true,
+        ladder: ctoLadder,
+      }),
+    ).toBeNull();
+
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 44,
+        attended: true,
+        ladder: ctoLadder,
+      }),
+    ).toEqual({ rule: 'BR-22', amount: 0.25 });
+  });
+
+  it('proposes BR-24 unbounded above', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 90,
+        attended: true,
+        ladder: ctoLadder,
+      }),
+    ).toEqual({ rule: 'BR-24', amount: 0.75 });
+  });
+
+  it('proposes BR-25 for a day not attended at all, found by its flag', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 0,
+        attended: false,
+        ladder: ctoLadder,
+      }),
+    ).toEqual({ rule: 'BR-25', amount: 1 });
+  });
+
+  it('proposes nothing below every band', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 10,
+        attended: true,
+        ladder: ctoLadder,
+      }),
+    ).toBeNull();
+  });
+
+  it('proposes nothing against an empty ladder rather than guessing', () => {
+    expect(
+      proposeCtoApplication({
+        latenessPercent: 90,
+        attended: true,
+        ladder: [],
+      }),
+    ).toBeNull();
   });
 });

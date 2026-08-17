@@ -100,6 +100,28 @@ describe('requiredPermissionFor', () => {
     expect(requiredPermissionFor('/pto')).toBe(PERMISSIONS.PTO_READ);
   });
 
+  it('gates the CTO API on pto read, because CTO spends PTO', () => {
+    // §22, D-23: CTO has no permission of its own. Inventing a cto.read here
+    // would create a permission nothing seeds and no role holds.
+    expect(requiredPermissionFor('/api/cto')).toBe(PERMISSIONS.PTO_READ);
+    expect(requiredPermissionFor('/api/cto/abc123/approve')).toBe(
+      PERMISSIONS.PTO_READ,
+    );
+  });
+
+  it('does not let the award-id pattern swallow originate', () => {
+    // `/api/pto/originate` is a manual grant, not an award id. Both map to
+    // pto.read at the path and assert pto.approve in the handler, so a greedy
+    // match is not a hole today — but it would become one the moment the two
+    // diverge, and the rule order is what keeps that honest.
+    expect(requiredPermissionFor('/api/pto/originate')).toBe(
+      PERMISSIONS.PTO_READ,
+    );
+    expect(requiredPermissionFor('/api/pto/abc123/expiry')).toBe(
+      PERMISSIONS.PTO_READ,
+    );
+  });
+
   it('gates team configuration on team read', () => {
     expect(requiredPermissionFor('/teams/abc123')).toBe(PERMISSIONS.TEAM_READ);
   });

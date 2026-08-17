@@ -6,7 +6,7 @@ import Typography from '@mui/material/Typography';
 import { useState } from 'react';
 import { effective } from '../../utils/dayRecord.js';
 import { formatDuration } from '../../utils/duration.js';
-import { OverrideDialogShell } from './OverrideDialogShell.jsx';
+import { OverrideDialogShell } from '../OverrideDialogShell.jsx';
 
 /**
  * P-24. FR-4.9 and FR-6.10: correcting the hours on a day when the punches

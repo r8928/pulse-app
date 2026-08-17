@@ -13,12 +13,13 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 
 /**
- * What P-23, P-24 and P-25 have in common, in one place rather than three.
+ * What P-23, P-24, P-25, P-01, P-02, P-03 and P-27 have in common, in one
+ * place rather than seven.
  *
- * All three state what the engine concluded, take the administrator's
- * replacement beside it (FR-6.11), and demand a reason — the why is as
- * auditable as the what (FR-9.4). Only the field in the middle differs, so
- * only that is passed in.
+ * Every one of them states what the engine concluded, takes the
+ * administrator's decision beside it (FR-6.11, FR-7.2), and demands a reason —
+ * the why is as auditable as the what (FR-9.4). Only the field in the middle
+ * differs, so only that is passed in.
  *
  * A real form: Enter submits, Esc cancels, `type='button'` on everything that
  * is not the primary action (CLAUDE.md).
@@ -37,6 +38,7 @@ export function OverrideDialogShell({
   error,
   reason,
   onReasonChange,
+  reasonHelperText = 'Stored beside the value with your name and the time, and shown wherever the day is read.',
   children,
 }) {
   const enabled = !pending && Boolean(reason.trim()) && canSubmit;
@@ -74,7 +76,7 @@ export function OverrideDialogShell({
               onChange={(event) => onReasonChange(event.target.value)}
               multiline
               minRows={2}
-              helperText='Stored beside the value with your name and the time, and shown wherever the day is read.'
+              helperText={reasonHelperText}
               required
             />
           </Stack>

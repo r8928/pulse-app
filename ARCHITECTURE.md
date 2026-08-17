@@ -1383,11 +1383,18 @@ Product Owners — take PTO in return for those hours.
 date the extra work was performed** — earned 5 August, expires 5 September.
 
 **If approval happens after the expiry date has passed**, the award posts with
-its expiry extended to 30 days from the **approval** date, and the extension
-is visible on the award. `OFFICE_ADMIN` may override an expiry (`P-27`).
+its expiry extended by `ptoValidityDays` from the **approval** date, and the
+extension is visible on the award. `OFFICE_ADMIN` may override an expiry
+(`P-27`), which reverses any `PTO_EXPIRY` already posted before the new date
+takes over — an entry is never edited (`FR-6.8`).
 
 Expiry posts a `PTO_EXPIRY` debit on the expiry date. Because it is a ledger
 entry, a balance "as of" any past date remains correct.
+
+No cron exists, so the debit posts the first time anything looks at a date
+past it — `recalculateDays` and the balance read, the same shape `D-12` gave
+entitlement crediting. `S-15` therefore reads *expired* off the date against
+today rather than off a status: the award document has no `EXPIRED` state.
 
 ### 21.4 Declining
 
@@ -1399,6 +1406,18 @@ while staying visible in the day's history.
 attendance data changes.** Store the decline against the day and compare
 against it before re-proposing — otherwise every recalculation resurrects it
 and the queue becomes noise.
+
+One live candidate exists per user per date, held by a unique index partial on
+`declined: false`. **A decline must set that flag, not only `status`** — the
+flag is what releases the slot for the fresh record this rule requires, and
+`partialFilterExpression` cannot express `status: { $ne: 'DECLINED' }`. For
+the same reason, originating (`P-04`) refuses a date that already has a live
+candidate rather than inserting a second one.
+
+A candidate the day **stops** implying is *withdrawn*, not declined: the
+record is flagged and left `PENDING` so a later recalculation can revive it.
+It is left out of `S-15`'s queue and cannot be approved — `FR-7.7`'s manual
+grant is the way through if it is still owed.
 
 ### 21.5 Warning before expiry
 
@@ -1419,17 +1438,27 @@ spend PTO, the other being taking a paid day off.
 applyCto({ userId, date, amount, actor, override }):
   1. available = replayBalance(userId, PTO, date), counting UNEXPIRED awards only
   2. if available < amount and !override:
-       BLOCK. The deduction stands and comes out of
-       teamPolicy.automaticDeductionLeaveType (seeded Casual).
-       Queue the block on S-05.
-  3. OFFICE_ADMIN may override the block explicitly — audited (FR-6.10)
+       REFUSE the write (400, naming the shortfall). Nothing posts, and the
+       deduction stands, out of teamPolicy.automaticDeductionLeaveType
+       (seeded Casual).
+  3. OFFICE_ADMIN may override the block explicitly — the application records
+     blockOverridden: true and the override is audited (FR-6.10)
   4. on approval:
        append PTO debit          (CTO_APPLIED, −amount)
        append reversal of that day's AUTOMATIC_DEDUCTION   (the deduction is cancelled)
 ```
 
+The block is a **live check at the moment of approval, not a queue** (`D-23`).
+`S-05`'s tabs (`§27.1`) have no "CTO blocked" row and need none: it is a
+behaviour of the approve action, so there is no new collection and no new
+exception type.
+
 Both movements post in the same operation. A CTO application that debits PTO
 without cancelling the deduction charges the user twice.
+
+Step 1 sweeps expiry first (`§21.3`). An award whose expiry has passed but has
+not yet been swept is still sitting in the ledger as a credit, and counting it
+as available would spend PTO that no longer exists.
 
 ### 22.2 Seeded application ladder
 
@@ -1741,10 +1770,12 @@ with the rest of PTO and CTO.
 | `POST` | `/api/leave-records`, `/api/leave-records/[id]/soft-delete` | `leave.write` |
 | `POST` | `/api/leave/opening-balance` | `leave.write` |
 | `POST` | `/api/leave/entitlement` | `leave.write` |
-| `GET` | `/api/pto` | `pto.read` |
-| `POST` | `/api/pto/[id]/approve` · `/decline` | `pto.approve` |
+| `GET` | `/api/pto?status&teamId&userId&from&to` | `pto.read` |
+| `GET` | `/api/cto?status&teamId&userId&from&to` | `pto.read` |
+| `POST` | `/api/pto/[id]/approve` · `/decline` · `/expiry` | `pto.approve` |
 | `POST` | `/api/pto/originate` | `pto.approve` |
 | `POST` | `/api/cto/[id]/approve` · `/decline` | `pto.approve` |
+| `POST` | `/api/cto/originate` | `pto.approve` |
 
 ### 26.3 Traps
 

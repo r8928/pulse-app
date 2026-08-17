@@ -12,6 +12,7 @@ import {
 } from '../../../../database.js';
 import { leaveYearsTouchedBy } from '../../../../engine/accrual.js';
 import { ensureEntitlementCredited } from '../../../../engine/entitlement.js';
+import { ensurePtoExpiryPosted } from '../../../../engine/pto.js';
 import { errorResponse } from '../../../../utils/apiResponse.js';
 
 /**
@@ -22,6 +23,9 @@ import { errorResponse } from '../../../../utils/apiResponse.js';
  * With no cron in the system, a balance read is one of the two moments a year
  * can credit itself — the other is a recalculation — and the guard is
  * idempotent, so reading twice credits once.
+ *
+ * D-24: the same shape swept here for PTO expiry — one of the two places
+ * `ensurePtoExpiryPosted` runs from, the other being `recalculateDays`.
  */
 export async function GET(request) {
   try {
@@ -63,6 +67,7 @@ export async function GET(request) {
       for (const year of years) {
         await ensureEntitlementCredited(id, year, actor);
       }
+      await ensurePtoExpiryPosted(id, actor);
     }
 
     return NextResponse.json(await summariseBalances({ userIds, from, to }));

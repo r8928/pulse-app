@@ -1,3 +1,4 @@
+import { format, subDays } from 'date-fns';
 import { describe, expect, it, vi } from 'vitest';
 import { PERMISSIONS, ROLES, SCOPES } from '../constants/index.js';
 import { useTestDatabase } from '../test/mongo.js';
@@ -18,8 +19,15 @@ const ledgerRoute = await import('../app/api/leave/[userId]/ledger/route.js');
 const openingRoute = await import('../app/api/leave/opening-balance/route.js');
 const entitlementRoute = await import('../app/api/leave/entitlement/route.js');
 
-const { createTeam, createUser, replayBalance, updateTeamPolicy } =
-  await import('../database.js');
+const {
+  createTeam,
+  createUser,
+  listLedgerEntriesForSource,
+  replayBalance,
+  updateTeamPolicy,
+  upsertPtoCandidate,
+} = await import('../database.js');
+const { approvePtoAward } = await import('../engine/pto.js');
 
 const held = (...names) =>
   Object.fromEntries(names.map((name) => [name, SCOPES.ALL]));
@@ -114,6 +122,45 @@ describe('the leave API', () => {
       );
 
       expect(await replayBalance(userId, 'Annual', '2026-12-31')).toBe(10);
+    });
+
+    it('sweeps an approved PTO award past its expiry on the way through, since no cron exists (D-24)', async () => {
+      const user = await aUser();
+      const userId = String(user._id);
+
+      // Earned exactly the default 30-day validity ago: the natural expiry
+      // is today, so approving it doesn't trigger FR-7.3's late-approval
+      // extension — see __tests__/engine.pto.test.js for why this boundary
+      // matters.
+      const earnedOn = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+      const candidate = await upsertPtoCandidate(
+        userId,
+        earnedOn,
+        {
+          action: 'CREATE',
+          patch: { status: 'PENDING', rule: 'BR-19', amount: 1 },
+        },
+        actor,
+      );
+      const award = await approvePtoAward(
+        String(candidate._id),
+        { amount: 1, reason: 'Approved' },
+        candidate.version,
+        actor,
+      );
+
+      readerOnly();
+      await balancesRoute.GET(
+        get('/api/leave/balances?from=2026-01-01&to=2026-12-31'),
+      );
+
+      const entries = await listLedgerEntriesForSource(
+        'ptoAward',
+        String(award._id),
+      );
+      expect(entries.some((entry) => entry.entryType === 'PTO_EXPIRY')).toBe(
+        true,
+      );
     });
 
     it('requires a range rather than returning everything', async () => {

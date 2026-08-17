@@ -154,6 +154,18 @@ const ROUTE_RULES = [
     pattern: /^\/api\/leave-records(\/[^/]+)?$/,
     permission: PERMISSIONS.LEAVE_READ,
   },
+  // §21, §22. CTO has no permission of its own — it spends PTO, so both halves
+  // gate on pto.read here and assert pto.approve in the handler. `originate` is
+  // above the dynamic pattern, which would otherwise swallow it as an award id.
+  {
+    pattern: /^\/api\/(pto|cto)\/originate$/,
+    permission: PERMISSIONS.PTO_READ,
+  },
+  {
+    pattern: /^\/api\/(pto|cto)\/[^/]+\/(approve|decline|expiry)$/,
+    permission: PERMISSIONS.PTO_READ,
+  },
+  { pattern: /^\/api\/(pto|cto)$/, permission: PERMISSIONS.PTO_READ },
   {
     pattern: /^\/api\/(shifts|holidays)(\/[^/]+)?$/,
     permission: PERMISSIONS.CONFIG_READ,

@@ -280,6 +280,12 @@ export const teamPolicySchema = z.object({
   holidayWorkThresholdPercent: percentage.optional(),
   midnightCrossingWindowHours: z.number().min(0).max(24).optional(),
   duplicatePunchWindowMinutes: z.number().min(0).optional(),
+  /**
+   * D-27: an operational UX parameter, not a legal or financial figure
+   * carried over from the workbook, so — unlike the two fields above —
+   * this is seeded rather than left for policyCompleteness to flag.
+   */
+  ptoExpiryWarningDays: z.number().int().min(0).optional(),
 });
 
 /** FR-2.6: employment types are company-wide configuration, not an enum. */
@@ -539,6 +545,39 @@ export async function ensureIndexes() {
       unique: true,
       partialFilterExpression: { deletedAt: null },
       name: 'leave_record_one_per_date',
+    },
+  ]);
+
+  /**
+   * D-21: one LIVE candidate per user per date. Nothing here is ever soft
+   * deleted; a declined candidate is a genuine, permanent outcome that must
+   * not block a fresh proposal once the day changes (`D-22`, `FR-7.8`).
+   *
+   * Partial on `declined: false` rather than on `status: { $ne: 'DECLINED' }`
+   * — MongoDB's `partialFilterExpression` accepts only equality expressions,
+   * `$exists`, the range operators and `$type`; `$ne` (and `$in`) are
+   * rejected. The ledger's own `effectKey` index works around the identical
+   * limitation by testing a field's absence; this document is never absent
+   * the field, so a plain boolean equality does the same job.
+   */
+  await db.collection(COLLECTIONS.PTO_AWARDS).createIndexes([
+    { key: { companyId: 1, userId: 1, status: 1 } },
+    { key: { companyId: 1, status: 1, expiresAt: 1 } },
+    {
+      key: { companyId: 1, userId: 1, date: 1 },
+      unique: true,
+      partialFilterExpression: { declined: false },
+      name: 'pto_award_one_live_per_date',
+    },
+  ]);
+
+  await db.collection(COLLECTIONS.CTO_APPLICATIONS).createIndexes([
+    { key: { companyId: 1, userId: 1, status: 1 } },
+    {
+      key: { companyId: 1, userId: 1, date: 1 },
+      unique: true,
+      partialFilterExpression: { declined: false },
+      name: 'cto_application_one_live_per_date',
     },
   ]);
 
@@ -4583,6 +4622,447 @@ export async function commitAttendanceImport(
   });
 
   return { inserted: docs.length, userIds, dates };
+}
+
+// --- PTO awards and CTO applications -----------------------------------------
+
+/**
+ * D-21 (design record). One earned balance (PTO), two ways to spend it. Both
+ * collections share a lifecycle — proposed, approved, declined — which is why
+ * `engine/candidates.js`'s `reconcileCandidate` serves both.
+ *
+ * `date` is the date the extra work was performed (PTO) or the date of the
+ * late arrival CTO is applied against (CTO) — never the date of the decision.
+ *
+ * ```js
+ * // ptoAwards
+ * {
+ *   companyId, userId, date,
+ *   rule: 'BR-19' | 'MANUAL_GRANT',
+ *   proposedAmount, approvedAmount,   // null until approved
+ *   status: 'PENDING' | 'APPROVED' | 'DECLINED',
+ *   expiresAt, expiryExtended,        // set on approval — D-24
+ *   declinedSnapshot,                 // { rule, amount } — D-22
+ *   withdrawn,                        // the day no longer qualifies — never deleted
+ *   actorId, actorName, reason,       // the decision, not the proposal
+ *   version, deletedAt, createdAt, createdBy, updatedAt, updatedBy,
+ * }
+ * // ctoApplications: the same shape, substituting `appliedAmount` for
+ * // `approvedAmount` and adding `blockOverridden` (BR-26, D-23).
+ * ```
+ */
+async function upsertCandidate(
+  collectionName,
+  userId,
+  date,
+  { action, patch },
+  actor,
+  { amountField, extraDefaults, companyId },
+) {
+  if (action === 'NONE') return null;
+
+  const db = await getDb();
+  const now = new Date();
+
+  if (action === 'CREATE') {
+    const doc = {
+      companyId,
+      userId,
+      date,
+      rule: patch.rule,
+      [amountField]: patch.amount,
+      status: patch.status,
+      declined: false,
+      withdrawn: false,
+      declinedSnapshot: null,
+      actorId: null,
+      actorName: null,
+      reason: null,
+      ...extraDefaults,
+      version: 1,
+      deletedAt: null,
+      createdAt: now,
+      createdBy: actor.userId,
+      updatedAt: now,
+      updatedBy: actor.userId,
+    };
+    const { insertedId } = await db.collection(collectionName).insertOne(doc);
+    return { ...doc, _id: insertedId };
+  }
+
+  // UPDATE — either a fresh rule/amount on a PENDING record (which also
+  // reactivates one previously withdrawn, since the day now qualifies again),
+  // or a withdrawal of one the day no longer implies.
+  const existing = await db
+    .collection(collectionName)
+    .findOne({ companyId, userId, date, declined: false });
+  if (!existing) return null;
+
+  const set = patch.withdrawn
+    ? { withdrawn: true, updatedAt: now }
+    : {
+        rule: patch.rule,
+        [amountField]: patch.amount,
+        withdrawn: false,
+        updatedAt: now,
+      };
+
+  return db
+    .collection(collectionName)
+    .findOneAndUpdate(
+      { _id: existing._id },
+      { $set: set, $inc: { version: 1 } },
+      { returnDocument: 'after' },
+    );
+}
+
+export async function getPtoAwardById(id, companyId = DEFAULT_COMPANY_ID) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.PTO_AWARDS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+export async function getCtoApplicationById(
+  id,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.CTO_APPLICATIONS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+/**
+ * The version-checked write every PTO/CTO status transition shares — approve,
+ * decline, an expiry override. Each caller supplies its own audit `action`
+ * name and the fields being set; this is only the mechanics.
+ */
+async function updateCandidateStatus(
+  collectionName,
+  id,
+  patch,
+  version,
+  actor,
+  { action, entityType, companyId },
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const before = await (collectionName === COLLECTIONS.PTO_AWARDS
+    ? getPtoAwardById(id, companyId)
+    : getCtoApplicationById(id, companyId));
+  if (!before) return null;
+
+  const { reason, ...fields } = patch;
+  parse(reasonSchema, { reason });
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    collectionName,
+    id,
+    version,
+    {
+      $set: {
+        ...fields,
+        actorId: actor.userId,
+        actorName: actor.name,
+        reason,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action,
+    entityType,
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+/** P-01, FR-7.1, FR-7.2. `engine/pto.js`'s `approvePtoAward` computes `patch`. */
+export async function markPtoAwardApproved(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return updateCandidateStatus(
+    COLLECTIONS.PTO_AWARDS,
+    id,
+    patch,
+    version,
+    actor,
+    {
+      action: 'PTO_AWARD_APPROVED',
+      entityType: 'ptoAward',
+      companyId,
+    },
+  );
+}
+
+/**
+ * P-03, FR-7.8.
+ *
+ * `declined: true` is set here rather than left to the caller: it is what
+ * releases the one-live-candidate-per-date index (partial on `declined:
+ * false`), and D-22's whole lifecycle depends on a declined day being
+ * proposable again. Setting only `status` would leave the row occupying the
+ * slot and collide the re-proposal at the index.
+ */
+export async function markPtoAwardDeclined(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return updateCandidateStatus(
+    COLLECTIONS.PTO_AWARDS,
+    id,
+    { ...patch, declined: true },
+    version,
+    actor,
+    {
+      action: 'PTO_AWARD_DECLINED',
+      entityType: 'ptoAward',
+      companyId,
+    },
+  );
+}
+
+/** P-27, FR-7.3, FR-6.10. */
+export async function overridePtoAwardExpiry(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return updateCandidateStatus(
+    COLLECTIONS.PTO_AWARDS,
+    id,
+    patch,
+    version,
+    actor,
+    {
+      action: 'PTO_EXPIRY_OVERRIDDEN',
+      entityType: 'ptoAward',
+      companyId,
+    },
+  );
+}
+
+/**
+ * The PTO awards whose expiry has passed. `D-24`'s guard attempts to post
+ * `PTO_EXPIRY` for every one of these on every call — exactly like
+ * `ensureEntitlementCredited` (`D-12`), it keeps no bookkeeping flag of its
+ * own and relies entirely on the ledger's `effectKey` index to make a
+ * repeated run silently post nothing for an award already processed.
+ */
+export async function listApprovedPtoAwardsPastExpiry(
+  userId,
+  asOfDate,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.PTO_AWARDS)
+    .find({
+      companyId,
+      userId,
+      status: 'APPROVED',
+      expiresAt: { $ne: null, $lte: asOfDate },
+    })
+    .toArray();
+}
+
+/** P-01 (CTO), §22.1, `BR-26`. `engine/cto.js`'s `approveCtoApplication` computes `patch`. */
+export async function markCtoApplicationApproved(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return updateCandidateStatus(
+    COLLECTIONS.CTO_APPLICATIONS,
+    id,
+    patch,
+    version,
+    actor,
+    {
+      action: 'CTO_APPLICATION_APPROVED',
+      entityType: 'ctoApplication',
+      companyId,
+    },
+  );
+}
+
+/** §22, `FR-7.8`'s decline lifecycle applied to CTO — `declined` as above. */
+export async function markCtoApplicationDeclined(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return updateCandidateStatus(
+    COLLECTIONS.CTO_APPLICATIONS,
+    id,
+    { ...patch, declined: true },
+    version,
+    actor,
+    {
+      action: 'CTO_APPLICATION_DECLINED',
+      entityType: 'ctoApplication',
+      companyId,
+    },
+  );
+}
+
+export async function getPtoAwardForDate(
+  userId,
+  date,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.PTO_AWARDS)
+    .findOne({ companyId, userId, date, status: { $ne: 'DECLINED' } });
+}
+
+/**
+ * §21, `D-21`, `D-22`. `reconcileCandidate`'s verdict, applied. `CREATE` and
+ * `UPDATE` write; `NONE` writes nothing — the caller passes exactly what the
+ * pure function returned, so this stays a thin translation into storage.
+ */
+export async function upsertPtoCandidate(
+  userId,
+  date,
+  { action, patch },
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return upsertCandidate(
+    COLLECTIONS.PTO_AWARDS,
+    userId,
+    date,
+    { action, patch },
+    actor,
+    {
+      amountField: 'proposedAmount',
+      extraDefaults: {
+        approvedAmount: null,
+        expiresAt: null,
+        expiryExtended: false,
+      },
+      companyId,
+    },
+  );
+}
+
+/**
+ * `D-22` keeps a withdrawn candidate rather than deleting it, but the day
+ * stopped qualifying — so it is left out by default. Listing it would put a
+ * suggestion the engine has retracted back into `S-15`'s approval queue.
+ */
+export async function listPtoAwards({
+  userIds = null,
+  status = null,
+  from = null,
+  to = null,
+  includeWithdrawn = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (!includeWithdrawn) filter.withdrawn = false;
+  if (userIds) filter.userId = { $in: userIds };
+  if (status) filter.status = status;
+  if (from || to) {
+    filter.date = {};
+    if (from) filter.date.$gte = from;
+    if (to) filter.date.$lte = to;
+  }
+
+  return db
+    .collection(COLLECTIONS.PTO_AWARDS)
+    .find(filter)
+    .sort({ date: -1, _id: -1 })
+    .toArray();
+}
+
+export async function getCtoApplicationForDate(
+  userId,
+  date,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.CTO_APPLICATIONS)
+    .findOne({ companyId, userId, date, status: { $ne: 'DECLINED' } });
+}
+
+export async function upsertCtoCandidate(
+  userId,
+  date,
+  { action, patch },
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  return upsertCandidate(
+    COLLECTIONS.CTO_APPLICATIONS,
+    userId,
+    date,
+    { action, patch },
+    actor,
+    {
+      amountField: 'proposedAmount',
+      extraDefaults: { appliedAmount: null, blockOverridden: false },
+      companyId,
+    },
+  );
+}
+
+/** Withdrawn applications are left out for the same reason as `listPtoAwards`. */
+export async function listCtoApplications({
+  userIds = null,
+  status = null,
+  from = null,
+  to = null,
+  includeWithdrawn = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (!includeWithdrawn) filter.withdrawn = false;
+  if (userIds) filter.userId = { $in: userIds };
+  if (status) filter.status = status;
+  if (from || to) {
+    filter.date = {};
+    if (from) filter.date.$gte = from;
+    if (to) filter.date.$lte = to;
+  }
+
+  return db
+    .collection(COLLECTIONS.CTO_APPLICATIONS)
+    .find(filter)
+    .sort({ date: -1, _id: -1 })
+    .toArray();
 }
 
 // --- Leave records ---------------------------------------------------------
