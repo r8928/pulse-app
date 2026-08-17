@@ -10,6 +10,7 @@ import { z } from 'zod';
 import {
   ALL_PERMISSIONS,
   APPROVAL_STATUS,
+  APPROVAL_TYPE,
   DAY_STATUS,
   HALF_DAY_PERIOD,
   HOLIDAY_TYPE,
@@ -17,6 +18,7 @@ import {
   MANUAL_GRANT,
   PUNCH_SOURCE,
   PUNCH_TYPE,
+  RECORD_SOURCE,
   RESTORE_CASE,
   ROLES,
   SCOPES,
@@ -117,6 +119,7 @@ export const COLLECTIONS = Object.freeze({
 
   // Workflow
   APPROVALS: 'approvals',
+  IMPORT_EXCEPTIONS: 'importExceptions',
   AUDIT_RECORDS: 'auditRecords',
 });
 
@@ -613,6 +616,10 @@ export async function ensureIndexes() {
   await db
     .collection(COLLECTIONS.APPROVALS)
     .createIndexes([{ key: { companyId: 1, status: 1, raisedAt: -1 } }]);
+
+  await db
+    .collection(COLLECTIONS.IMPORT_EXCEPTIONS)
+    .createIndexes([{ key: { companyId: 1, resolved: 1, importedAt: -1 } }]);
 }
 
 // --- Audit -----------------------------------------------------------------
@@ -1896,6 +1903,123 @@ export async function commitRosterImport(
 
 // --- Approvals -------------------------------------------------------------
 
+// --- Import exceptions -----------------------------------------------------
+
+/**
+ * `D-26`. `FR-8.6` lists "unmatched import row" among `S-05`'s queues, but
+ * `S-11`'s preview is client-side and ephemeral: once the tab closes, a
+ * rejected row has left no trace.
+ *
+ * Written at COMMIT only. An upload abandoned at the preview asserted nothing
+ * and queues nothing — the row is a fact about a file somebody actually
+ * imported, not about one they thought better of.
+ */
+export async function recordImportExceptions(
+  rows,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (rows.length === 0) return { inserted: 0 };
+
+  const db = await getDb();
+  const now = new Date();
+
+  const { insertedCount } = await db
+    .collection(COLLECTIONS.IMPORT_EXCEPTIONS)
+    .insertMany(
+      rows.map((row) => ({
+        companyId,
+        sheetRow: row.sheetRow,
+        employeeCode: row.employeeCode ?? null,
+        fullName: row.fullName ?? null,
+        reason: row.reason,
+        importedAt: now,
+        importedBy: actor.userId,
+        resolved: false,
+        resolvedAt: null,
+        resolvedBy: null,
+      })),
+    );
+
+  return { inserted: insertedCount };
+}
+
+/**
+ * `resolved: null` asks for both. The default is the unresolved ones, because
+ * that is what `S-05` queues — an acknowledged row is history.
+ */
+export async function listImportExceptions({
+  resolved = false,
+  page = 1,
+  pageSize = 25,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (resolved !== null) filter.resolved = resolved;
+
+  const collection = db.collection(COLLECTIONS.IMPORT_EXCEPTIONS);
+  const [items, total] = await Promise.all([
+    collection
+      .find(filter)
+      .sort({ importedAt: -1, sheetRow: 1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    collection.countDocuments(filter),
+  ]);
+
+  return { items, total };
+}
+
+/**
+ * There is nothing to approve or decline about a bad row — only to acknowledge
+ * once the sheet or the roster is fixed and re-imported (`D-26`). Marked
+ * rather than deleted: nothing in Pulse is ever purged (`NFR-9`).
+ */
+export async function resolveImportException(
+  id,
+  reason,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  parse(reasonSchema, { reason });
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.IMPORT_EXCEPTIONS);
+  const before = await collection.findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const now = new Date();
+  const after = await collection.findOneAndUpdate(
+    { _id: new ObjectId(id), companyId },
+    {
+      $set: {
+        resolved: true,
+        reason,
+        resolvedAt: now,
+        resolvedBy: actor.userId,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'IMPORT_EXCEPTION_RESOLVED',
+    entityType: 'importException',
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
 /**
  * FR-2.11: a change reducing an employment period raises an approval naming
  * every record left outside it. Queued on S-05 until OFFICE_ADMIN decides.
@@ -1907,6 +2031,219 @@ export async function listPendingApprovals(companyId = DEFAULT_COMPANY_ID) {
     .find({ companyId, status: APPROVAL_STATUS.PENDING })
     .sort({ raisedAt: -1 })
     .toArray();
+}
+
+export async function getApprovalById(id, companyId = DEFAULT_COMPANY_ID) {
+  if (!ObjectId.isValid(id)) return null;
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.APPROVALS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+/**
+ * One pending approval per user at a time, refreshed rather than duplicated.
+ *
+ * §27.2's rule bends here but does not break: the *decision* must persist, so
+ * this is a stored record — but the stranded set inside it is a conclusion
+ * about current state, so a second reduction (or a late import for a date the
+ * user had already left) rewrites it rather than queueing the same person
+ * twice with two different answers.
+ */
+export async function raiseReductionApproval(
+  { userId, userName, change, records },
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.APPROVALS);
+  const now = new Date();
+
+  const existing = await collection.findOne({
+    companyId,
+    userId,
+    type: APPROVAL_TYPE.EMPLOYMENT_PERIOD_REDUCTION,
+    status: APPROVAL_STATUS.PENDING,
+  });
+
+  if (existing) {
+    return collection.findOneAndUpdate(
+      { _id: existing._id },
+      {
+        $set: { change, records, raisedAt: now, updatedAt: now },
+        $inc: { version: 1 },
+      },
+      { returnDocument: 'after' },
+    );
+  }
+
+  const doc = {
+    companyId,
+    type: APPROVAL_TYPE.EMPLOYMENT_PERIOD_REDUCTION,
+    userId,
+    userName,
+    change,
+    records,
+    status: APPROVAL_STATUS.PENDING,
+    reason: null,
+    actorId: null,
+    actorName: null,
+    decidedAt: null,
+    restoredAt: null,
+    restoredBy: null,
+    raisedAt: now,
+    raisedBy: actor.userId,
+    version: 1,
+    createdAt: now,
+    createdBy: actor.userId,
+    updatedAt: now,
+    updatedBy: actor.userId,
+  };
+
+  const { insertedId } = await collection.insertOne(doc);
+  return { ...doc, _id: insertedId };
+}
+
+/** The version-checked write behind approve, reject and restore. */
+export async function updateApprovalStatus(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const before = await getApprovalById(id, companyId);
+  if (!before) return null;
+
+  const { reason, action, ...fields } = patch;
+  parse(reasonSchema, { reason });
+  const now = new Date();
+
+  const after = await updateWithVersion(
+    COLLECTIONS.APPROVALS,
+    id,
+    version,
+    {
+      $set: {
+        ...fields,
+        actorId: actor.userId,
+        actorName: actor.name,
+        reason,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action,
+    entityType: 'approval',
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+/** Which collection an FR-2.11 stranded-record reference points at. */
+const REDUCTION_COLLECTIONS = Object.freeze({
+  [RECORD_SOURCE.DAY_RECORD]: COLLECTIONS.DAY_RECORDS,
+  [RECORD_SOURCE.PUNCH]: COLLECTIONS.PUNCHES,
+  [RECORD_SOURCE.LEAVE_RECORD]: COLLECTIONS.LEAVE_RECORDS,
+});
+
+/**
+ * Every dated record a user holds, in the one shape `recordsOutsidePeriod`
+ * judges. Soft-deleted ones are already out of every total, so they cannot be
+ * stranded again.
+ *
+ * A punch is judged by its work date. One that has none belongs to no day yet
+ * and the engine will never give it a date outside the period (§13 filters
+ * `datesToVisit` by employment), so it is carried through with a null date and
+ * the pure function drops it.
+ */
+export async function listUserDatedRecords(
+  userId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const query = { companyId, userId, deletedAt: null };
+
+  const [dayRecords, punches, leaveRecords] = await Promise.all([
+    db.collection(COLLECTIONS.DAY_RECORDS).find(query).toArray(),
+    db.collection(COLLECTIONS.PUNCHES).find(query).toArray(),
+    db.collection(COLLECTIONS.LEAVE_RECORDS).find(query).toArray(),
+  ]);
+
+  return [
+    ...dayRecords.map((record) => ({
+      sourceType: RECORD_SOURCE.DAY_RECORD,
+      _id: String(record._id),
+      date: record.date,
+    })),
+    ...punches.map((punch) => ({
+      sourceType: RECORD_SOURCE.PUNCH,
+      _id: String(punch._id),
+      date: punch.workDate ?? null,
+    })),
+    ...leaveRecords.map((record) => ({
+      sourceType: RECORD_SOURCE.LEAVE_RECORD,
+      _id: String(record._id),
+      date: record.date,
+    })),
+  ];
+}
+
+/**
+ * FR-2.11's approval and its later undo, as one storage operation.
+ *
+ * `deletedAt` is set or cleared in bulk — the decision is the audited event
+ * (`updateApprovalStatus` writes that record), not each of the possibly
+ * hundreds of rows it covers.
+ */
+export async function setReductionRecordsDeleted(
+  records,
+  deleted,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const now = new Date();
+  let changed = 0;
+
+  for (const [sourceType, collectionName] of Object.entries(
+    REDUCTION_COLLECTIONS,
+  )) {
+    const ids = records
+      .filter((record) => record.sourceType === sourceType)
+      .map((record) => new ObjectId(record._id));
+
+    if (ids.length === 0) continue;
+
+    const { modifiedCount } = await db.collection(collectionName).updateMany(
+      { _id: { $in: ids }, companyId },
+      {
+        $set: {
+          deletedAt: deleted ? now : null,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        },
+      },
+    );
+
+    changed += modifiedCount;
+  }
+
+  return { changed };
 }
 
 // --- Teams -----------------------------------------------------------------
@@ -3416,6 +3753,82 @@ export async function listDayRecords({
     .find(filter)
     .sort({ date: 1, userId: 1 })
     .toArray();
+}
+
+/**
+ * §27.1's day-level queues, all four of them, in one paged read.
+ *
+ * §27.2: **derive, do not accumulate.** These are conclusions living on the
+ * day record, rewritten by every recalculation — so fixing the punch empties
+ * the queue with no separate cleanup, and nothing here can drift from what
+ * `S-10` and `S-12` show for the same day.
+ *
+ * `matchOverride` narrows further where the queue is not a code but a state:
+ * an unresolved late arrival is a deduction nobody has waived, which is a
+ * condition on `computed` and `override` rather than on `exceptions`.
+ */
+export async function listDayRecordExceptions({
+  codes = null,
+  matchExtra = null,
+  from,
+  to,
+  userIds = null,
+  page = 1,
+  pageSize = 25,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = {
+    companyId,
+    deletedAt: null,
+    date: { $gte: from, $lte: to },
+    ...(matchExtra ?? {}),
+  };
+  if (codes) filter.exceptions = { $in: codes };
+  if (userIds) filter.userId = { $in: userIds };
+
+  const collection = db.collection(COLLECTIONS.DAY_RECORDS);
+  const [items, total] = await Promise.all([
+    collection
+      .find(filter)
+      .sort({ date: -1, userId: 1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    collection.countDocuments(filter),
+  ]);
+
+  return { items, total };
+}
+
+/** FR-4.7's queue. A punch the engine flagged and nobody has resolved. */
+export async function listDuplicatePunches({
+  from,
+  to,
+  page = 1,
+  pageSize = 25,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = {
+    companyId,
+    deletedAt: null,
+    isDuplicate: true,
+    workDate: { $gte: from, $lte: to },
+  };
+
+  const collection = db.collection(COLLECTIONS.PUNCHES);
+  const [items, total] = await Promise.all([
+    collection
+      .find(filter)
+      .sort({ workDate: -1, at: 1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    collection.countDocuments(filter),
+  ]);
+
+  return { items, total };
 }
 
 /** The scalar fields whose change makes a recalculation a real change. */

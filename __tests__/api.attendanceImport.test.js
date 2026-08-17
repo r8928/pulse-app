@@ -26,6 +26,7 @@ const {
   createTeam,
   createUser,
   getDayRecord,
+  listImportExceptions,
   setWeeklyOffPattern,
   updateTeamPolicy,
 } = await import('../database.js');
@@ -273,6 +274,64 @@ describe('the attendance import API', () => {
 
       const record = await getDayRecord(userId, '2026-08-12');
       expect(record.computed.workedMinutes).toBe(540);
+    });
+
+    it('queues the rejected rows for S-05, so a bad row outlives the tab (D-26)', async () => {
+      const user = await aTrackedUser();
+      importer();
+
+      const preview = await (
+        await validateRoute.POST(
+          await upload(
+            [
+              ...goodRows(user),
+              {
+                employeeCode: 'NOBODY-1',
+                fullName: 'Not On The Roster',
+                type: 'IN',
+                date: '12/08/2026',
+                time: '09:00',
+              },
+            ],
+            'DMY',
+          ),
+        )
+      ).json();
+
+      expect(preview.rejected).toHaveLength(1);
+
+      await commitRoute.POST(
+        json({ rows: preview.accepted, rejected: preview.rejected }),
+      );
+
+      const { items, total } = await listImportExceptions();
+      expect(total).toBe(1);
+      expect(items[0].employeeCode).toBe('NOBODY-1');
+      expect(items[0].reason).toBeTruthy();
+    });
+
+    it('queues nothing for a preview nobody committed', async () => {
+      const user = await aTrackedUser();
+      importer();
+
+      await validateRoute.POST(
+        await upload(
+          [
+            {
+              employeeCode: 'NOBODY-2',
+              fullName: 'Not On The Roster',
+              type: 'IN',
+              date: '12/08/2026',
+              time: '09:00',
+            },
+            ...goodRows(user),
+          ],
+          'DMY',
+        ),
+      );
+
+      // Validation alone asserted nothing about the file, so nothing queues.
+      expect((await listImportExceptions()).total).toBe(0);
     });
 
     it('answers 403 without attendance.import', async () => {

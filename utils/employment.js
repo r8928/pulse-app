@@ -60,3 +60,18 @@ export function isWithinEmploymentPeriod(tenures, date) {
   const on = toDate(date);
   return live(tenures).some((tenure) => covers(tenure, on));
 }
+
+/**
+ * FR-2.11's check, pure. Which of a user's dated records fall outside the
+ * employment period a set of tenures produces — nothing more. What to do with
+ * them is `engine/reduction.js`'s decision and `OFFICE_ADMIN`'s approval.
+ *
+ * A record with no date belongs to no day yet — an imported punch before its
+ * work date is resolved — and cannot be stranded: the engine never assigns a
+ * work date outside the period in the first place.
+ */
+export function recordsOutsidePeriod(tenures, records) {
+  return (records ?? []).filter(
+    (record) => record.date && !isWithinEmploymentPeriod(tenures, record.date),
+  );
+}

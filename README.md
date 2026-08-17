@@ -60,7 +60,9 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done |
 | Leave engine (`FR-6.x`): entitlements, proration, carry forward | Done |
 | PTO and CTO (`FR-7.x`, `S-15`) | Done — proposed by the engine, decided only by a human |
-| Reporting (`FR-8.3`–`FR-8.5`), exceptions queue (`FR-8.6`) | Stub screens only |
+| Exceptions dashboard, all twelve queues (`FR-8.6`, `S-05`) | Done — derived live, so fixing the record clears the queue |
+| Employment-period reduction approval (`FR-2.11`, `P-05`) | Done — the soft delete never waits for it; only the stranded records do |
+| Reporting (`FR-8.3`–`FR-8.5`) | Stub screens only |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 
 Every collection exists already, so none of the above needs a migration.

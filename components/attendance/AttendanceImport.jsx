@@ -76,7 +76,13 @@ export function AttendanceImport() {
       const response = await fetch('/api/attendance/import/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: preview.accepted }),
+        // D-26: the rejected rows go with the commit so S-05 can queue them.
+        // The preview is client-side and ephemeral — without this, a row
+        // nobody could match disappears the moment this tab closes.
+        body: JSON.stringify({
+          rows: preview.accepted,
+          rejected: preview.rejected,
+        }),
       });
       const body = await response.json().catch(() => ({}));
 

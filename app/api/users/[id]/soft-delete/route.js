@@ -4,8 +4,12 @@ import {
   assertRecordInScope,
   requireActor,
 } from '../../../../../authz/guard.js';
-import { PERMISSIONS } from '../../../../../constants/index.js';
+import {
+  PERMISSIONS,
+  REDUCTION_CHANGE,
+} from '../../../../../constants/index.js';
 import { getUserById, softDeleteUser } from '../../../../../database.js';
+import { checkReduction } from '../../../../../engine/reduction.js';
 import { errorResponse } from '../../../../../utils/apiResponse.js';
 
 /**
@@ -35,6 +39,16 @@ export async function POST(request, { params }) {
 
     const { version, ...body } = await request.json();
     const user = await softDeleteUser(id, body, actor, version);
+
+    // FR-2.11, and deliberately AFTER the soft delete rather than before it:
+    // the departure and the loss of access are already in force by now. Only
+    // the fate of any records left outside the reduced period waits for
+    // OFFICE_ADMIN, and this is what queues that question on S-05.
+    await checkReduction(
+      id,
+      { kind: REDUCTION_CHANGE.USER_SOFT_DELETED },
+      actor,
+    );
 
     return NextResponse.json(user);
   } catch (error) {

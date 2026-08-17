@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveEmploymentDates,
   isWithinEmploymentPeriod,
+  recordsOutsidePeriod,
 } from '../employment.js';
 
 /**
@@ -146,5 +147,71 @@ describe('isWithinEmploymentPeriod', () => {
 
   it('refuses every date when there are no tenures', () => {
     expect(isWithinEmploymentPeriod([], '2026-08-12')).toBe(false);
+  });
+});
+
+/**
+ * `FR-2.11`. A change that reduces an employment period is checked for records
+ * left outside it. This is that check, pure: it decides nothing about what to
+ * do with them — only which ones are stranded.
+ */
+describe('recordsOutsidePeriod', () => {
+  const record = (date, id = date) => ({ _id: id, date });
+
+  it('finds the records left after a tenure was closed early (§19.5)', () => {
+    // Soft deleted 9 August, date of leaving 4 August: 5–8 August strand.
+    const tenures = [tenure('2026-01-01', '2026-08-04')];
+    const records = [
+      record('2026-08-03'),
+      record('2026-08-05'),
+      record('2026-08-06'),
+      record('2026-08-07'),
+      record('2026-08-08'),
+    ];
+
+    expect(recordsOutsidePeriod(tenures, records).map((r) => r.date)).toEqual([
+      '2026-08-05',
+      '2026-08-06',
+      '2026-08-07',
+      '2026-08-08',
+    ]);
+  });
+
+  it('treats both ends as inclusive — a last working day is a day worked', () => {
+    const tenures = [tenure('2026-01-01', '2026-08-04')];
+
+    expect(recordsOutsidePeriod(tenures, [record('2026-08-04')])).toEqual([]);
+    expect(recordsOutsidePeriod(tenures, [record('2026-01-01')])).toEqual([]);
+  });
+
+  it('strands a record sitting in the gap between two tenures (FR-2.12)', () => {
+    const tenures = [tenure('2025-01-01', '2025-06-30'), tenure('2026-01-01')];
+
+    expect(
+      recordsOutsidePeriod(tenures, [record('2025-09-15')]).map((r) => r.date),
+    ).toEqual(['2025-09-15']);
+  });
+
+  it('strands nothing while a tenure is still open', () => {
+    expect(
+      recordsOutsidePeriod([tenure('2026-01-01')], [record('2030-01-01')]),
+    ).toEqual([]);
+  });
+
+  it('ignores a record with no date, which belongs to no day yet', () => {
+    // A punch imported but not yet recalculated carries no work date. It is
+    // attached to nothing, and the engine will never attach it to a date
+    // outside the period, so there is nothing to strand.
+    const tenures = [tenure('2026-01-01', '2026-08-04')];
+
+    expect(recordsOutsidePeriod(tenures, [record(null, 'p1')])).toEqual([]);
+  });
+
+  it('strands everything once every tenure is soft deleted', () => {
+    const tenures = [tenure('2026-01-01', null, new Date())];
+
+    expect(recordsOutsidePeriod(tenures, [record('2026-03-01')])).toHaveLength(
+      1,
+    );
   });
 });

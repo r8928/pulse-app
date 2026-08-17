@@ -1837,20 +1837,47 @@ fixed by another route.
 ### 27.3 Traps
 
 - **Paged, never fully materialised** — the backlog grows with the roster
-  (`NFR-3`, `DC-10`).
-- Empty per tab reads **"Nothing outstanding"**, not an empty grid.
+  (`NFR-3`, `DC-10`). Only the open tab's page is ever fetched; the counts come
+  from the server with the page so a tab says what is waiting before anyone
+  opens it.
+- Empty per tab reads **"Nothing outstanding"**, not an empty grid — and says
+  what that means for *that* queue, which is never the same thing twice.
 - Each row offers approve, approve with a changed amount, and decline where
-  they apply.
+  they apply. **Most of the twelve are not approvals at all**: a missing punch
+  is fixed on `S-12`, a missing configuration value on `S-17`. Those rows link
+  to where the fix lives rather than offering a decision they cannot make.
+- **A failing queue states it against itself**, never against the page. One
+  tab must not take the other eleven down.
 - The dashboard also lets `OFFICE_ADMIN` **start** a PTO award or CTO
   application for a user and date that raised no suggestion (`P-04`).
 
+### 27.4 The three the spec leaves open
+
+`FR-8.6` names these queues without defining when a row belongs in one. Each
+is settled in `engine/exceptions.js`, where the reasoning stays beside the
+code:
+
+- **Unresolved late arrival** — a lateness that cost leave and that nobody has
+  waived. Read through `effective`, not `computed`, so waiving it (`P-25`) or
+  cancelling it with CTO both resolve it. Without that, the queue could never
+  empty and would become noise the moment the first deduction was raised.
+- **Exhausted leave or PTO balance** — a replayed balance **below zero**. The
+  only reading that needs no threshold nobody has specified.
+- **PTO approaching expiry** — approved, unexpired, and expiring within that
+  team's `ptoExpiryWarningDays` (`D-27`, seeded 7).
+
 ## 28 M-3 · People, the remainder
 
-**Phase:** `P4` — **delivered**, Phase 4 branch 3. The exception is item 5, the
-`FR-2.11` employment-period reduction approval, which stays `P6`: it is an
-approval workflow that posts reversing ledger entries, and neither exists
-before `P5`. Nothing can be stranded outside a period yet, because no punch,
-day record or ledger entry exists.
+**Phase:** `P4` — **delivered**, Phase 4 branch 3. Item 5, the `FR-2.11`
+employment-period reduction approval, was held back to `P6` because it is an
+approval workflow that posts reversing ledger entries, and neither existed
+before `P5`. It is **delivered** in Phase 6 branch 2.
+
+`FR-2.11`'s check runs **after** the change it guards, in both routes that can
+reduce a period. That order is the requirement, not an implementation
+convenience: the user's soft delete and their loss of access take effect
+immediately and never wait for the approval. Only the fate of the stranded
+records waits.
 
 `FR-3.14` is tagged `P5` while `P-11` is `P4`; the split is exactly the
 recalculation, so `P-11` ships whole here and calls the `D-4` seam.

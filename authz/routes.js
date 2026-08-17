@@ -154,6 +154,19 @@ const ROUTE_RULES = [
     pattern: /^\/api\/leave-records(\/[^/]+)?$/,
     permission: PERMISSIONS.LEAVE_READ,
   },
+  // FR-2.11, §27. The queue reads on exceptions.read; each decision handler
+  // asserts user.write, because a reduction soft deletes a user's own records.
+  {
+    pattern: /^\/api\/approvals\/[^/]+\/(approve|reject|restore)$/,
+    permission: PERMISSIONS.EXCEPTIONS_READ,
+  },
+  { pattern: /^\/api\/approvals$/, permission: PERMISSIONS.EXCEPTIONS_READ },
+  {
+    pattern: /^\/api\/import-exceptions\/[^/]+\/dismiss$/,
+    permission: PERMISSIONS.EXCEPTIONS_READ,
+  },
+  { pattern: /^\/api\/exceptions$/, permission: PERMISSIONS.EXCEPTIONS_READ },
+
   // §21, §22. CTO has no permission of its own — it spends PTO, so both halves
   // gate on pto.read here and assert pto.approve in the handler. `originate` is
   // above the dynamic pattern, which would otherwise swallow it as an award id.

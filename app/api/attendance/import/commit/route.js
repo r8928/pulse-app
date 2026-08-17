@@ -6,7 +6,10 @@ import {
   requireActor,
 } from '../../../../../authz/guard.js';
 import { PERMISSIONS } from '../../../../../constants/index.js';
-import { commitAttendanceImport } from '../../../../../database.js';
+import {
+  commitAttendanceImport,
+  recordImportExceptions,
+} from '../../../../../database.js';
 import { recalculateDays } from '../../../../../engine/recalculate.js';
 import { errorResponse } from '../../../../../utils/apiResponse.js';
 
@@ -27,7 +30,7 @@ export async function POST(request) {
     const scope = assertPermission(actor, PERMISSIONS.ATTENDANCE_IMPORT);
     assertRecordInScope(scope, actor, COMPANY_WIDE);
 
-    const { rows } = await request.json();
+    const { rows, rejected = [] } = await request.json();
 
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json(
@@ -40,6 +43,11 @@ export async function POST(request) {
       rows,
       actor,
     );
+
+    // D-26: the rejected rows are queued HERE rather than at the preview. A
+    // preview asserts nothing about the file — only a commit says somebody
+    // meant to import it, and only then is a bad row worth chasing on S-05.
+    await recordImportExceptions(rejected, actor);
 
     let recalculated = 0;
 

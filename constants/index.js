@@ -195,6 +195,57 @@ export const APPROVAL_STATUS = Object.freeze({
   DECLINED: 'DECLINED',
 });
 
+/**
+ * `FR-8.6`'s twelve queues, §27.1's table as an enum. The dashboard, the API
+ * and the home-page counts all name a queue by one of these, so a tab can
+ * never disagree with the count beside it about what it is showing.
+ */
+export const EXCEPTION_QUEUE = Object.freeze({
+  MISSING_PUNCH: 'MISSING_PUNCH',
+  DUPLICATE_PUNCH: 'DUPLICATE_PUNCH',
+  IMPOSSIBLE_DURATION: 'IMPOSSIBLE_DURATION',
+  NO_SHIFT: 'NO_SHIFT',
+  CONFIGURATION: 'CONFIGURATION',
+  IMPORT_ROW: 'IMPORT_ROW',
+  LATE_ARRIVAL: 'LATE_ARRIVAL',
+  EXHAUSTED_BALANCE: 'EXHAUSTED_BALANCE',
+  PTO_EXPIRING: 'PTO_EXPIRING',
+  PTO_PENDING: 'PTO_PENDING',
+  CTO_PENDING: 'CTO_PENDING',
+  REDUCTION: 'REDUCTION',
+});
+
+/** What an `approvals` document is about. FR-2.11 is the only kind today. */
+export const APPROVAL_TYPE = Object.freeze({
+  EMPLOYMENT_PERIOD_REDUCTION: 'EMPLOYMENT_PERIOD_REDUCTION',
+});
+
+/**
+ * FR-2.11's three ways an employment period shrinks. The queue names the
+ * change that caused it, so `IT` knows which thing to correct on a rejection.
+ */
+export const REDUCTION_CHANGE = Object.freeze({
+  USER_SOFT_DELETED: 'USER_SOFT_DELETED',
+  TENURE_SOFT_DELETED: 'TENURE_SOFT_DELETED',
+  DATE_OF_LEAVING_MOVED: 'DATE_OF_LEAVING_MOVED',
+});
+
+/**
+ * What a ledger entry, or an FR-2.11 stranded-record reference, points back
+ * at. These strings are written into stored documents, so they are a domain
+ * enum like any other rather than incidental text.
+ */
+export const RECORD_SOURCE = Object.freeze({
+  DAY_RECORD: 'dayRecord',
+  PUNCH: 'punch',
+  LEAVE_RECORD: 'leaveRecord',
+  PTO_AWARD: 'ptoAward',
+  CTO_APPLICATION: 'ctoApplication',
+  TENURE: 'tenure',
+  CUTOVER: 'cutover',
+  ENTITLEMENT_OVERRIDE: 'entitlementOverride',
+});
+
 // --- Sign in ---------------------------------------------------------------
 
 /**
