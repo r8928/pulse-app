@@ -49,11 +49,10 @@ const TABS = [
 ];
 
 /**
- * Tabs whose collections stay empty until the ledger's read surface ships.
- * Attendance left this list in Phase 5 — the engine now produces the records
- * it lists.
+ * Both tabs that were placeholders left this list in Phase 5: the engine now
+ * produces the day records, and balances replay from the ledger.
  */
-const NOT_YET = { 5: 'Leave and balances' };
+const NOT_YET = {};
 
 const FIELD_LABELS = [
   ['fullName', 'Full name'],
@@ -326,6 +325,26 @@ export function UserDetail({
               )}
             </TableBody>
           </Table>
+        </Paper>
+      ) : null}
+
+      {tab === 5 ? (
+        <Paper variant='outlined' sx={{ p: 3 }}>
+          <Stack spacing={2}>
+            <Typography variant='body2' color='text.secondary'>
+              Balances are replayed from the ledger and never stored, so they
+              live on their own screen with the movements that produced them.
+            </Typography>
+            <Stack direction='row'>
+              <Button
+                variant='outlined'
+                component={Link}
+                href={`/leave/${user._id}/ledger`}
+              >
+                Open balance history
+              </Button>
+            </Stack>
+          </Stack>
         </Paper>
       ) : null}
 

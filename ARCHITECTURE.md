@@ -1317,6 +1317,18 @@ prorate(annualEntitlement, tenureStart, leaveYearEnd):
 > leave in `FR-5.2`). A figure like 6.37 days is not spendable. `OFFICE_ADMIN`
 > may override the prorated figure via `P-20` (`FR-2.7`, `FR-6.10`).
 
+**Where the crediting guard lives.** `ensureEntitlementCredited` is in
+`engine/entitlement.js`, not in `database.js`. It orchestrates — reads through
+the data layer, computes with `engine/accrual.js`, writes back — which is the
+same shape as `recalculate.js`. `database.js` importing from `engine/` would
+invert §1's layer map, and the proration it needs is a calculation rather than
+a query.
+
+Its `effectKey` uses the covering tenure as the source and the leave year's
+start date in place of a source version, because nothing about the tenure
+changes when the year rolls over: a new year is a genuinely new effect, and the
+same tenure legitimately credits again (§19.3).
+
 ### 20.3 Lapse on departure
 
 Carry forward applies **within one tenure only**. When a tenure ends, post a
@@ -1726,8 +1738,9 @@ with the rest of PTO and CTO.
 | ------ | ----- | ---------- |
 | `GET` | `/api/leave/balances?from&to&teamId&userId` | `leave.read` |
 | `GET` | `/api/leave/[userId]/ledger` | `leave.read` |
-| `POST` | `/api/leave` | `leave.write` |
+| `POST` | `/api/leave-records`, `/api/leave-records/[id]/soft-delete` | `leave.write` |
 | `POST` | `/api/leave/opening-balance` | `leave.write` |
+| `POST` | `/api/leave/entitlement` | `leave.write` |
 | `GET` | `/api/pto` | `pto.read` |
 | `POST` | `/api/pto/[id]/approve` · `/decline` | `pto.approve` |
 | `POST` | `/api/pto/originate` | `pto.approve` |
@@ -1743,6 +1756,11 @@ with the rest of PTO and CTO.
 - **`S-14` offers no edit or delete anywhere**, because no endpoint provides
   one. Entries of note carry their own label: opening balance at cutover,
   lapsed on departure, PTO expiry.
+  `app/api/leave/[userId]/ledger/route.js` exports `GET` and nothing else, and
+  a contract test asserts `PATCH`, `PUT`, `DELETE` and `POST` stay undefined —
+  so the guarantee is enforced by the module rather than by remembering it.
+  The running balance is computed server-side, in the order the entries were
+  read: a client that re-sorted would show a different trace of one ledger.
 - A user created after cutover has **no opening entry**, and the screen says
   so rather than showing a zero row.
 - **Nothing posts to the ledger until approved** (`FR-7.1`).

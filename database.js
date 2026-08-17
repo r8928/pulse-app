@@ -14,6 +14,7 @@ import {
   HALF_DAY_PERIOD,
   HOLIDAY_TYPE,
   LEDGER_ENTRY_TYPE,
+  MANUAL_GRANT,
   PUNCH_SOURCE,
   PUNCH_TYPE,
   RESTORE_CASE,
@@ -4130,6 +4131,263 @@ export async function postLedgerEntries(
   }
 
   return written;
+}
+
+/** A user's live tenures, oldest first — the employment period, in order. */
+export async function listTenures(userId, companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId, deletedAt: null })
+    .sort({ startDate: 1 })
+    .toArray();
+}
+
+/**
+ * P-19, FR-6.13. At go-live an OFFICE_ADMIN enters each opening balance by
+ * hand from the old workbook. The system does not compute it — historical
+ * attendance is deliberately not migrated, only the roster (FR-2.9) — so the
+ * reason is mandatory and the entry is labelled as what it is.
+ *
+ * A user created after cutover has no opening entry at all, and S-14 says so
+ * rather than showing a zero row.
+ */
+export async function postOpeningBalance(
+  { userId, leaveType, amount, date, reason },
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  parse(reasonSchema, { reason });
+
+  if (typeof amount !== 'number' || Number.isNaN(amount)) {
+    throw new ValidationError('An opening balance must be a number.');
+  }
+
+  const [posted] = await postLedgerEntries(
+    [
+      {
+        entryType: LEDGER_ENTRY_TYPE.OPENING_BALANCE,
+        leaveType,
+        amount,
+        rule: MANUAL_GRANT,
+      },
+    ],
+    {
+      sourceType: 'cutover',
+      sourceId: userId,
+      sourceVersion: leaveType,
+      userId,
+      date,
+      actor,
+      reason,
+    },
+    companyId,
+  );
+
+  if (!posted) {
+    throw new ValidationError(
+      `An opening balance for ${leaveType} already exists for this user. A ledger entry is corrected by reversing it, never by entering a second one.`,
+    );
+  }
+
+  return posted;
+}
+
+/**
+ * P-20, FR-2.7 and FR-6.10. Overrides the entitlement the engine prorated.
+ *
+ * The engine's own credit is REVERSED rather than edited away (FR-6.8), so
+ * S-14 shows what was computed, that it was cancelled, and what an
+ * administrator put in its place — which is what keeps NFR-11 answerable
+ * after someone has intervened.
+ */
+export async function overrideEntitlement(
+  { userId, leaveType, leaveYear, amount, reason },
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  parse(reasonSchema, { reason });
+
+  const db = await getDb();
+
+  const existing = await db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .find({
+      companyId,
+      userId,
+      leaveType,
+      entryType: LEDGER_ENTRY_TYPE.ENTITLEMENT_CREDIT,
+      date: leaveYear.start,
+    })
+    .toArray();
+
+  const reversals = await db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .find({ companyId, userId, entryType: LEDGER_ENTRY_TYPE.REVERSAL })
+    .toArray();
+
+  const alreadyReversed = new Set(
+    reversals.map((entry) => String(entry.reversalOf)),
+  );
+
+  const live = existing.filter(
+    (entry) => !alreadyReversed.has(String(entry._id)),
+  );
+
+  if (live.length > 0) {
+    await reverseLedgerEntries(live, { actor, reason }, companyId);
+  }
+
+  const [posted] = await postLedgerEntries(
+    [
+      {
+        entryType: LEDGER_ENTRY_TYPE.ENTITLEMENT_CREDIT,
+        leaveType,
+        amount,
+        rule: MANUAL_GRANT,
+      },
+    ],
+    {
+      sourceType: 'entitlementOverride',
+      sourceId: `${userId}:${leaveType}`,
+      sourceVersion: `${leaveYear.start}:${amount}`,
+      userId,
+      date: leaveYear.start,
+      actor,
+      reason,
+    },
+    companyId,
+  );
+
+  return posted ?? null;
+}
+
+/**
+ * §19.2 and I-2. **A balance is never stored.** It is replayed by summing
+ * entries, and this is the only place that sum lives.
+ *
+ *   replayBalance(userId, leaveType, asOfDate):
+ *     Σ amount where userId, leaveType, date <= asOfDate
+ *
+ * Every entry is already signed (§19.1), which is why BR-14's two formulas —
+ * the leave balance and the PTO balance — are one implementation. Do not write
+ * a second.
+ */
+export async function replayBalance(
+  userId,
+  leaveType,
+  asOfDate,
+  { companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const db = await getDb();
+
+  const [result] = await db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .aggregate([
+      { $match: { companyId, userId, leaveType, date: { $lte: asOfDate } } },
+      { $group: { _id: null, balance: { $sum: '$amount' } } },
+    ])
+    .toArray();
+
+  return result?.balance ?? 0;
+}
+
+/**
+ * S-14's whole read: every movement in order, oldest first, so the screen can
+ * run a balance down the column and show what each entry did to it.
+ */
+export async function listLedgerEntriesForUser(
+  userId,
+  {
+    leaveType = null,
+    from = null,
+    to = null,
+    companyId = DEFAULT_COMPANY_ID,
+  } = {},
+) {
+  const db = await getDb();
+  const filter = { companyId, userId };
+
+  if (leaveType) filter.leaveType = leaveType;
+  if (from || to) {
+    filter.date = {};
+    if (from) filter.date.$gte = from;
+    if (to) filter.date.$lte = to;
+  }
+
+  return db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .find(filter)
+    .sort({ date: 1, createdAt: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * S-13. BR-14 in the shape the screen shows it: opening, credited, availed,
+ * automatic deductions and CTO applied, per user per leave type.
+ *
+ * The named columns are DERIVED FROM the same entries the balance sums, so
+ * they cannot disagree with it — a breakdown computed from a second source is
+ * how a screen ends up showing parts that do not add to the whole.
+ *
+ * Availed and deductions are reported as positive magnitudes because that is
+ * how they read in a column headed "availed"; the balance keeps the signs.
+ */
+export async function summariseBalances({
+  userIds,
+  from,
+  to,
+  companyId = DEFAULT_COMPANY_ID,
+}) {
+  const db = await getDb();
+
+  const sumWhen = (types) => ({
+    $sum: { $cond: [{ $in: ['$entryType', types] }, '$amount', 0] },
+  });
+
+  const rows = await db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .aggregate([
+      {
+        $match: {
+          companyId,
+          userId: { $in: userIds },
+          date: { $lte: to },
+        },
+      },
+      {
+        $group: {
+          _id: { userId: '$userId', leaveType: '$leaveType' },
+          balance: { $sum: '$amount' },
+          opening: sumWhen([LEDGER_ENTRY_TYPE.OPENING_BALANCE]),
+          credited: sumWhen([LEDGER_ENTRY_TYPE.ENTITLEMENT_CREDIT]),
+          availed: sumWhen([LEDGER_ENTRY_TYPE.LEAVE_AVAILED]),
+          deductions: sumWhen([LEDGER_ENTRY_TYPE.AUTOMATIC_DEDUCTION]),
+          ctoApplied: sumWhen([LEDGER_ENTRY_TYPE.CTO_APPLIED]),
+          wfhUsed: sumWhen([LEDGER_ENTRY_TYPE.WFH_USED]),
+        },
+      },
+      { $sort: { '_id.userId': 1, '_id.leaveType': 1 } },
+    ])
+    .toArray();
+
+  return {
+    rows: rows.map((row) => ({
+      userId: row._id.userId,
+      leaveType: row._id.leaveType,
+      opening: row.opening,
+      credited: row.credited,
+      availed: Math.abs(row.availed),
+      deductions: Math.abs(row.deductions),
+      ctoApplied: row.ctoApplied,
+      wfhUsed: Math.abs(row.wfhUsed),
+      balance: row.balance,
+    })),
+    // The range's start is not a filter on the sum — a balance is everything
+    // up to a date, not a slice (§19.2) — but S-13 shows it, so it travels.
+    from,
+    to,
+  };
 }
 
 /**

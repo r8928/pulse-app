@@ -587,6 +587,32 @@ describe('recalculateDays', () => {
     expect(await getDayRecord(userId, '2026-08-12')).not.toBeNull();
   });
 
+  it('credits the leave year on the way through, since no cron exists (D-12)', async () => {
+    const { userId } = await aTrackedUserOnADayShift();
+    await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-12T04:00:00.000Z');
+    await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-12T13:00:00.000Z');
+
+    const { replayBalance } = await import('../database.js');
+    expect(await replayBalance(userId, 'Casual', '2026-12-31')).toBe(0);
+
+    await recalculateDays(userId, oneDay());
+
+    // completePolicy seeds Casual at 10 for a user employed all year.
+    expect(await replayBalance(userId, 'Casual', '2026-12-31')).toBe(10);
+  });
+
+  it('credits nothing more on a second recalculation (I-9)', async () => {
+    const { userId } = await aTrackedUserOnADayShift();
+    await punch(userId, PUNCH_TYPE.CHECK_IN, '2026-08-12T04:00:00.000Z');
+    await punch(userId, PUNCH_TYPE.CHECK_OUT, '2026-08-12T13:00:00.000Z');
+
+    await recalculateDays(userId, oneDay());
+    await recalculateDays(userId, oneDay());
+
+    const { replayBalance } = await import('../database.js');
+    expect(await replayBalance(userId, 'Casual', '2026-12-31')).toBe(10);
+  });
+
   it('does nothing for a range with no activity in it', async () => {
     const { userId } = await aTrackedUserOnADayShift();
 

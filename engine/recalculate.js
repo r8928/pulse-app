@@ -25,6 +25,7 @@ import {
   upsertDayRecord,
 } from '../database.js';
 import { isWithinEmploymentPeriod } from '../utils/employment.js';
+import { leaveYearsTouchedBy } from './accrual.js';
 import { resolveDayStatus, resolveDayType } from './classify.js';
 import {
   flagDuplicates,
@@ -32,6 +33,7 @@ import {
   pairPunches,
   workedMinutes as sumWorkedMinutes,
 } from './duration.js';
+import { ensureEntitlementCredited } from './entitlement.js';
 import { deductionFor } from './ladders.js';
 import { desiredEntriesForDay, reconcileLedger } from './ledger.js';
 import {
@@ -159,6 +161,19 @@ async function recalculateOneUser(userId, { from, to }, context) {
   // FR-2.10: an untracked user receives no day records, so there is nothing
   // here to refresh — not an empty one, none at all.
   if (!inputs?.user.tracked || inputs.user.deletedAt) return 0;
+
+  /**
+   * D-12: no cron exists in this app, so a leave year credits itself the first
+   * time anything looks at a date inside it. Before anything is computed, so
+   * that a day which spends leave is measured against a balance that has
+   * already been credited.
+   */
+  for (const year of leaveYearsTouchedBy({
+    from: resolvedFrom,
+    to: resolvedTo,
+  })) {
+    await ensureEntitlementCredited(userId, year, context.actor);
+  }
 
   const punches = await resolveWorkDatesForPunches(userId, inputs, {
     loadFrom,

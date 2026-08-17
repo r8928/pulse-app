@@ -136,6 +136,16 @@ const ROUTE_RULES = [
     pattern: /^\/api\/attendance(\/[^/]+\/[^/]+)?$/,
     permission: PERMISSIONS.ATTENDANCE_READ,
   },
+  // M-5. Above the leave-records patterns so neither swallows the other, and
+  // the ledger route deliberately has no write method to gate.
+  {
+    pattern: /^\/api\/leave\/(balances|opening-balance|entitlement)$/,
+    permission: PERMISSIONS.LEAVE_READ,
+  },
+  {
+    pattern: /^\/api\/leave\/[^/]+\/ledger$/,
+    permission: PERMISSIONS.LEAVE_READ,
+  },
   {
     pattern: /^\/api\/leave-records\/[^/]+\/soft-delete$/,
     permission: PERMISSIONS.LEAVE_READ,

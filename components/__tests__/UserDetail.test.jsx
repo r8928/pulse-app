@@ -132,15 +132,17 @@ describe('UserDetail', () => {
     expect(screen.getByText(/in force today/i)).toBeInTheDocument();
   });
 
-  it('says the leave tab is not built rather than showing an empty grid', async () => {
-    // Attendance left this list in Phase 5; leave and balances arrive with the
-    // ledger's read surface.
+  it('sends the leave tab to the ledger, where balances are replayed', async () => {
+    // DC-4: a balance is never stored, so it lives on the screen that shows
+    // the movements producing it rather than being copied onto this one.
     render(<UserDetail {...props} />);
     await userEvent.click(
       screen.getByRole('tab', { name: 'Leave and balances' }),
     );
 
-    expect(screen.getByText(/not implemented yet/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /open balance history/i }),
+    ).toHaveAttribute('href', '/leave/u1/ledger');
   });
 
   it('disables soft deleting the only tenure a user has', async () => {
