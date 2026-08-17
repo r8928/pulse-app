@@ -231,6 +231,18 @@ rather than from the clock, so a re-run over a past period stays deterministic
 *If overruled:* remove the filter in `datesToVisit`. Every date in range then
 materialises, and `D-15` is what changes with it.
 
+### D-19 · `S-09` shows no PTO balance until the ledger replays
+
+`list-of-screens.md` lists a PTO balance column on `S-09`. A PTO balance is
+`approved awards − PTO taken − CTO applications − expiries` replayed from the
+ledger (`BR-14`), and none of those entry types exists before Branch 4.
+
+**Decision:** the column states that balances arrive with the ledger's read
+surface rather than showing a figure. A zero would be a number, and a wrong
+one — `DC-6` forbids presenting a gap as a value.
+
+*If overruled:* drop the column until Branch 4 and add it there.
+
 ---
 
 ## 3 · `recalculateDays`, filled in (`ARCHITECTURE.md` §23.3)

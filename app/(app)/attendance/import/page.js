@@ -1,34 +1,21 @@
 import Stack from '@mui/material/Stack';
+import { AttendanceImport } from '../../../../components/attendance/AttendanceImport.jsx';
 import { PageHeader } from '../../../../components/PageHeader.jsx';
-import { ScreenStub } from '../../../../components/ScreenStub.jsx';
 
+/**
+ * S-11. `proxy.js` has already established that the viewer holds
+ * `attendance.import` before this renders — no guard belongs here (CLAUDE.md),
+ * and both endpoints behind the screen assert the permission again for
+ * themselves.
+ */
 export default function AttendanceImportPage() {
   return (
     <Stack spacing={3}>
       <PageHeader
-        title='Attendance import'
-        description='Bulk load punches from the biometric Excel export. The date format is confirmed before validation runs, every rejection carries a stated reason, and the commit is atomic — every accepted row is written or none is.'
+        title='Import attendance'
+        description='Load punches in bulk from the biometric export. Nothing is written until you have seen what would be accepted and what would be refused, and then every accepted row is written or none is.'
       />
-      <ScreenStub
-        screenId='S-11'
-        specRefs={['FR-4.2', 'FR-4.3', 'FR-4.4', 'FR-4.5', 'FR-4.11', 'NFR-4']}
-        tabs={[
-          '1. Upload',
-          '2. Confirm date format',
-          '3. Preview accepted and rejected',
-          '4. Commit',
-        ]}
-        columns={[
-          'Sr No.',
-          'Employee Code',
-          'Employee Name',
-          'Type',
-          'Date',
-          'Time',
-          'Accepted',
-          'Reason for rejection',
-        ]}
-      />
+      <AttendanceImport />
     </Stack>
   );
 }

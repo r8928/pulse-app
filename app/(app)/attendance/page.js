@@ -1,35 +1,72 @@
 import Stack from '@mui/material/Stack';
+import { endOfMonth, format, startOfMonth } from 'date-fns';
+import { AttendanceOverview } from '../../../components/attendance/AttendanceOverview.jsx';
 import { PageHeader } from '../../../components/PageHeader.jsx';
-import { ScreenStub } from '../../../components/ScreenStub.jsx';
+import { listTeams, summariseAttendance } from '../../../database.js';
+import { getSessionUser } from '../../../session.js';
 
-export default function AttendanceOverviewPage() {
+/**
+ * S-09. Server component: it reads the session and the data and hands both
+ * down as props.
+ *
+ * The totals are computed by the database (`summariseAttendance`), not here —
+ * NFR-3 puts a full-company month under two seconds at p95, and pulling every
+ * record back to add it up stops meeting that long before the roster does.
+ */
+export default async function AttendanceOverviewPage({ searchParams }) {
+  const params = await searchParams;
+  const viewer = await getSessionUser();
+
+  const today = new Date();
+  const filters = {
+    from: params?.from ?? format(startOfMonth(today), 'yyyy-MM-dd'),
+    to: params?.to ?? format(endOfMonth(today), 'yyyy-MM-dd'),
+    teamId: params?.teamId ?? '',
+    userId: params?.userId ?? '',
+    includeDeleted: params?.includeDeleted === 'true',
+  };
+
+  const [teams, summary] = await Promise.all([
+    listTeams({ includeDeleted: false, pageSize: 200 }),
+    summariseAttendance({
+      from: filters.from,
+      to: filters.to,
+      teamId: filters.teamId || null,
+      userId: filters.userId || null,
+      includeDeleted: filters.includeDeleted,
+    }),
+  ]);
+
+  /**
+   * One column per leave type anyone actually took in the range. Reading them
+   * off the results rather than off policy keeps the table honest: a type no
+   * longer offered still shows the days already taken under it (FR-6.4 makes
+   * the list editable at runtime).
+   */
+  const leaveTypes = [
+    ...new Set(summary.rows.flatMap((row) => Object.keys(row.leaveByType))),
+  ].sort();
+
   return (
     <Stack spacing={3}>
       <PageHeader
         title='Attendance'
-        description='Attendance statistics for every employee over a chosen date range. Untracked users are excluded from every total and the exclusion is stated rather than left silent. A user who is no longer active keeps unchanged figures inside their employment period.'
+        description='What the engine concluded for every colleague over a chosen range. A colleague who has left keeps unchanged figures inside their employment period, marked as no longer active.'
       />
-      <ScreenStub
-        screenId='S-09'
-        specRefs={['FR-8.1', 'FR-2.4', 'FR-2.10', 'FR-5.6', 'FR-5.7', 'NFR-3']}
-        filters={[
-          'Date range',
-          'Team',
-          'Employee',
-          'Just me',
-          'Include soft-deleted users',
-        ]}
-        columns={[
-          'Employee',
-          'Present',
-          'Absent',
-          'Leave by type',
-          'WFH used',
-          'Late days',
-          'Short days',
-          'Holiday-work days',
-          'PTO balance',
-        ]}
+
+      <AttendanceOverview
+        rows={summary.rows.map((row) => ({
+          ...row,
+          deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+        }))}
+        teams={teams.items.map((team) => ({
+          _id: String(team._id),
+          name: team.name,
+        }))}
+        leaveTypes={leaveTypes}
+        filters={filters}
+        untrackedCount={summary.untrackedCount}
+        viewerId={viewer?.userId ?? null}
       />
     </Stack>
   );

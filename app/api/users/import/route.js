@@ -1,4 +1,3 @@
-import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
 import {
   assertPermission,
@@ -13,6 +12,7 @@ import {
 } from '../../../../database.js';
 import { errorResponse } from '../../../../utils/apiResponse.js';
 import { validateRosterRows } from '../../../../utils/rosterImport.js';
+import { readSheetRows } from '../../../../utils/sheet.js';
 
 /**
  * S-08. The one-time go-live migration of the roster from the old workbook's
@@ -26,30 +26,6 @@ import { validateRosterRows } from '../../../../utils/rosterImport.js';
  * It imports **people, not attendance**. Historical attendance is deliberately
  * not migrated (`FR-6.13`), so nothing here touches a punch or a day record.
  */
-
-/** The sheet carries a code and a name. Nothing else is read from it. */
-async function readSheet(file) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
-
-  const sheet =
-    workbook.getWorksheet('Biometric ID') ?? workbook.worksheets.at(0);
-
-  if (!sheet) {
-    throw new Error('That file has no readable sheet in it.');
-  }
-
-  const [header, ...body] = sheet.getSheetValues().filter(Boolean);
-  const columns = (header ?? []).map((cell) =>
-    cell === null || cell === undefined ? '' : String(cell).trim(),
-  );
-
-  return body.map((row) =>
-    Object.fromEntries(
-      columns.map((name, index) => [name, row?.[index] ?? null]),
-    ),
-  );
-}
 
 export async function POST(request) {
   try {
@@ -81,7 +57,7 @@ export async function POST(request) {
 
     let parsed;
     try {
-      parsed = await readSheet(file);
+      parsed = await readSheetRows(file, { sheetName: 'Biometric ID' });
     } catch (caught) {
       return NextResponse.json(
         {

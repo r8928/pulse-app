@@ -121,6 +121,13 @@ const ROUTE_RULES = [
     pattern: /^\/api\/punches(\/[^/]+)?$/,
     permission: PERMISSIONS.ATTENDANCE_READ,
   },
+  // Above the dynamic attendance pattern, which would otherwise swallow
+  // `import` as a user id and hand the bulk load to anyone with
+  // attendance.read.
+  {
+    pattern: /^\/api\/attendance\/import\/(validate|commit)$/,
+    permission: PERMISSIONS.ATTENDANCE_IMPORT,
+  },
   {
     pattern: /^\/api\/attendance\/[^/]+\/[^/]+\/override$/,
     permission: PERMISSIONS.ATTENDANCE_READ,

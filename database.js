@@ -1,4 +1,10 @@
-import { addDays, format, parseISO, subDays } from 'date-fns';
+import {
+  addDays,
+  format,
+  isValid as isValidDate,
+  parseISO,
+  subDays,
+} from 'date-fns';
 import { MongoClient, ObjectId } from 'mongodb';
 import { z } from 'zod';
 import {
@@ -4170,6 +4176,155 @@ export async function reverseLedgerEntries(
     .insertMany(docs);
 
   return docs.map((doc, index) => ({ ...doc, _id: insertedIds[index] }));
+}
+
+// --- Attendance import -----------------------------------------------------
+
+/**
+ * S-11 step 2's whole read: the users those employee codes belong to, each
+ * carrying what the validator needs to judge a row — their tenures, whether
+ * they are tracked, and the timezone of the shift their punches are entered
+ * in.
+ *
+ * One bulk query rather than one per row. NFR-4 requires 40,000 rows to
+ * validate and preview in under ten seconds, which a per-row lookup cannot
+ * meet at any roster size worth importing.
+ */
+export async function loadImportContext(
+  { codes },
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+
+  const users = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, employeeCode: { $in: codes } })
+    .toArray();
+
+  if (users.length === 0) return { usersByCode: new Map() };
+
+  const userIds = users.map((user) => String(user._id));
+
+  const tenures = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId: { $in: userIds }, deletedAt: null })
+    .toArray();
+
+  const shiftIds = [...new Set(users.map((user) => user.shiftId))]
+    .filter((id) => id && ObjectId.isValid(id))
+    .map((id) => new ObjectId(id));
+
+  const shifts = await db
+    .collection(COLLECTIONS.SHIFTS)
+    .find({ companyId, _id: { $in: shiftIds } })
+    .toArray();
+
+  const timezoneByShift = new Map(
+    shifts.map((shift) => [String(shift._id), shift.timezone]),
+  );
+
+  const tenuresByUser = new Map();
+  for (const tenure of tenures) {
+    tenuresByUser.set(tenure.userId, [
+      ...(tenuresByUser.get(tenure.userId) ?? []),
+      tenure,
+    ]);
+  }
+
+  const usersByCode = new Map(
+    users.map((user) => [
+      user.employeeCode,
+      {
+        ...user,
+        tenures: tenuresByUser.get(String(user._id)) ?? [],
+        /**
+         * §7.2: a punch's wall-clock time in the sheet is read in the timezone
+         * of the shift it belongs to. A user with no shift has no timezone to
+         * read it in — the validator still accepts nothing for them, because
+         * §8.3 will raise SHIFT_CONFIGURATION_INCOMPLETE on the day itself.
+         */
+        timezone: timezoneByShift.get(String(user.shiftId)) ?? 'UTC',
+      },
+    ]),
+  );
+
+  return { usersByCode };
+}
+
+/**
+ * FR-4.5: every accepted row is written or none is.
+ *
+ * `insertMany` ordered, in one call, so the driver rejects the whole batch
+ * rather than leaving some rows behind. That is a guarantee about the
+ * observable outcome — a partially applied import must never be queryable —
+ * not a promise about the number of database calls.
+ *
+ * The work date is deliberately left null: §13 resolves it against the shift
+ * held on the day, and the caller recalculates the users and dates returned
+ * here. An importer that guessed the date would put every night-shift
+ * check-out on the wrong record.
+ */
+export async function commitAttendanceImport(
+  rows,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (rows.length === 0) return { inserted: 0, userIds: [], dates: [] };
+
+  const db = await getDb();
+  const now = new Date();
+
+  const docs = rows.map((row) => {
+    const at = parseISO(row.at);
+
+    if (!isValidDate(at)) {
+      throw new ValidationError(
+        `Row for ${row.employeeCode ?? row.userId} carries an unreadable time, so nothing was imported.`,
+      );
+    }
+
+    return {
+      companyId,
+      userId: row.userId,
+      at,
+      type: row.type,
+      source: PUNCH_SOURCE.IMPORT,
+      workDate: null,
+      workDateExceptionCode: null,
+      isDuplicate: false,
+      version: 1,
+      deletedAt: null,
+      createdAt: now,
+      createdBy: actor.userId,
+      updatedAt: now,
+      updatedBy: actor.userId,
+    };
+  });
+
+  await db.collection(COLLECTIONS.PUNCHES).insertMany(docs, { ordered: true });
+
+  const userIds = [...new Set(docs.map((doc) => doc.userId))];
+  const dates = [
+    ...new Set(docs.map((doc) => format(doc.at, 'yyyy-MM-dd'))),
+  ].sort();
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'ATTENDANCE_IMPORTED',
+    entityType: 'punch',
+    entityId: 'import',
+    after: {
+      inserted: docs.length,
+      users: userIds.length,
+      from: dates[0],
+      to: dates.at(-1),
+    },
+    reason: `Imported ${docs.length} punches for ${userIds.length} colleagues`,
+    companyId,
+  });
+
+  return { inserted: docs.length, userIds, dates };
 }
 
 // --- Leave records ---------------------------------------------------------

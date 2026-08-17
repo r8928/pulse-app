@@ -54,11 +54,12 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture: daily grid, day detail, punch and override popups (`S-10`, `S-12`) | Done |
+| Attendance overview over a date range (`S-09`) | Done, except PTO balances |
 | Day classification (`FR-5.x`) | Done — engine, ledger posting and both screens |
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done; balances screen still to come |
 | Leave engine (`FR-6.x`), PTO and CTO (`FR-7.x`) | Not started |
 | Reporting (`FR-8.3`–`FR-8.5`), exceptions queue (`FR-8.6`) | Stub screens only |
-| Attendance Excel import (`S-11`) | Stub screen only |
+| Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 
 Every collection exists already, so none of the above needs a migration.
 
