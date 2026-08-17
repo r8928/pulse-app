@@ -3615,6 +3615,9 @@ export async function createPunch(
       workDate: null,
       workDateExceptionCode: null,
       isDuplicate: false,
+      duplicateAcknowledgedAt: null,
+      duplicateAcknowledgedBy: null,
+      duplicateReason: null,
     },
     action: 'PUNCH_CREATED',
     entityType: 'punch',
@@ -3668,6 +3671,61 @@ export async function updatePunch(
     actorId: actor.userId,
     actorName: actor.name,
     action: 'PUNCH_UPDATED',
+    entityType: 'punch',
+    entityId: id,
+    before,
+    after,
+    reason,
+    companyId,
+  });
+
+  return after;
+}
+
+/**
+ * `P-07`, `FR-4.7`. The "keep" half: this pair is genuinely two taps, and the
+ * queue should stop asking.
+ *
+ * The acknowledgement is stored BESIDE the engine's flag rather than clearing
+ * it. `isDuplicate` is derived and rewritten by every recalculation, so
+ * clearing it would last exactly until the next run and the queue would never
+ * empty — the same reason `DC-7` puts a day override beside `computed` rather
+ * than in place of it. `setPunchDerivedFields` never touches these fields, so
+ * the decision survives.
+ */
+export async function acknowledgeDuplicatePunch(
+  id,
+  reason,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  parse(reasonSchema, { reason });
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const collection = db.collection(COLLECTIONS.PUNCHES);
+  const before = await collection.findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const now = new Date();
+  const after = await collection.findOneAndUpdate(
+    { _id: new ObjectId(id), companyId },
+    {
+      $set: {
+        duplicateAcknowledgedAt: now,
+        duplicateAcknowledgedBy: actor.userId,
+        duplicateReason: reason,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'DUPLICATE_PUNCH_ACKNOWLEDGED',
     entityType: 'punch',
     entityId: id,
     before,
@@ -3814,6 +3872,10 @@ export async function listDuplicatePunches({
     companyId,
     deletedAt: null,
     isDuplicate: true,
+    // P-07's "keep": a decision that this pair is genuinely two taps. Stored
+    // beside the derived flag, so it survives the recalculation that rewrites
+    // that flag and the queue stops asking.
+    duplicateAcknowledgedAt: null,
     workDate: { $gte: from, $lte: to },
   };
 
@@ -5002,6 +5064,9 @@ export async function commitAttendanceImport(
       workDate: null,
       workDateExceptionCode: null,
       isDuplicate: false,
+      duplicateAcknowledgedAt: null,
+      duplicateAcknowledgedBy: null,
+      duplicateReason: null,
       version: 1,
       deletedAt: null,
       createdAt: now,

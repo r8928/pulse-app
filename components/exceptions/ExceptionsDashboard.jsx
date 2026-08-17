@@ -20,6 +20,8 @@ import {
 import { EmptyState } from '../EmptyState.jsx';
 import { OriginateDialog } from '../pto/OriginateDialog.jsx';
 import { ReasonDialog } from '../ReasonDialog.jsx';
+import { DuplicatePunchDialog } from './DuplicatePunchDialog.jsx';
+import { MissingConfigurationDialog } from './MissingConfigurationDialog.jsx';
 import { QueueTable } from './QueueTable.jsx';
 import { ReductionDialog } from './ReductionDialog.jsx';
 
@@ -103,12 +105,21 @@ export function ExceptionsDashboard({
     load();
   };
 
-  /** `P-05`'s two decisions, and `D-26`'s acknowledgement, share one path. */
+  /**
+   * Every decision this dashboard can make, on one path. Which endpoint the
+   * action means is the only thing that differs.
+   */
+  const ENDPOINTS = {
+    dismiss: (id) => `/api/import-exceptions/${id}/dismiss`,
+    keep: (id) => `/api/punches/${id}/duplicate`,
+    remove: (id) => `/api/punches/${id}/soft-delete`,
+    approve: (id) => `/api/approvals/${id}/approve`,
+    reject: (id) => `/api/approvals/${id}/reject`,
+  };
+
   const decide = async (action, body) => {
-    const url =
-      action === 'dismiss'
-        ? `/api/import-exceptions/${dialog.row.id}/dismiss`
-        : `/api/approvals/${dialog.row.id}/${action}`;
+    const url = ENDPOINTS[action]?.(dialog.row.id);
+    if (!url) return false;
 
     const done = await post(url, body);
     if (done) {
@@ -227,6 +238,21 @@ export function ExceptionsDashboard({
           pending={pending}
           error={error}
         />
+      ) : null}
+
+      {dialog?.action === 'duplicate' ? (
+        <DuplicatePunchDialog
+          punch={dialog.row}
+          open
+          onClose={close}
+          onSubmit={decide}
+          pending={pending}
+          error={error}
+        />
+      ) : null}
+
+      {dialog?.action === 'configuration' ? (
+        <MissingConfigurationDialog gap={dialog.row} open onClose={close} />
       ) : null}
 
       {dialog?.action === 'dismiss' ? (

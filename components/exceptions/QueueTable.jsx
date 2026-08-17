@@ -102,17 +102,30 @@ const COLUMNS = Object.freeze({
 
   [EXCEPTION_QUEUE.DUPLICATE_PUNCH]: {
     headers: ['Employee', 'Work date', 'Punch', 'Action'],
-    cells: (row) => [
+    cells: (row, { onAction, canDecide }) => [
       <Person key='person' row={row} />,
       mono('date', row.date),
       mono('type', row.type),
-      openTheDay(row, 'Keep or remove'),
+      canDecide ? (
+        // P-07 decides it here rather than sending the reader to S-12: keeping
+        // a flagged pair is a decision about the flag, not about the day.
+        <Button
+          key='action'
+          type='button'
+          variant='contained'
+          onClick={() => onAction('duplicate', row)}
+        >
+          Keep or remove
+        </Button>
+      ) : (
+        openTheDay(row, 'Open the day')
+      ),
     ],
   },
 
   [EXCEPTION_QUEUE.CONFIGURATION]: {
     headers: ['Team', 'Outstanding value', 'Why it is needed', 'Action'],
-    cells: (row) => [
+    cells: (row, { onAction }) => [
       <Typography key='entity' variant='bodyStrong'>
         {row.entity}
       </Typography>,
@@ -122,11 +135,11 @@ const COLUMNS = Object.freeze({
       </Typography>,
       <Button
         key='action'
-        component={Link}
-        href={`/teams/${row.teamId}`}
+        type='button'
         variant='outlined'
+        onClick={() => onAction('configuration', row)}
       >
-        Set it
+        What is missing
       </Button>,
     ],
   },

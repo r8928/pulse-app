@@ -114,7 +114,7 @@ const ROUTE_RULES = [
   // attendance.write or leave.write for its own method, the same split the
   // team routes above already use.
   {
-    pattern: /^\/api\/punches\/[^/]+\/soft-delete$/,
+    pattern: /^\/api\/punches\/[^/]+\/(soft-delete|duplicate)$/,
     permission: PERMISSIONS.ATTENDANCE_READ,
   },
   {

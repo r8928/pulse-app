@@ -2,7 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EXCEPTION_QUEUE } from '../../../constants/index.js';
+import { DuplicatePunchDialog } from '../DuplicatePunchDialog.jsx';
 import { ExceptionsDashboard } from '../ExceptionsDashboard.jsx';
+import { MissingConfigurationDialog } from '../MissingConfigurationDialog.jsx';
 
 /**
  * `S-05`. The single work queue: everything needing attention surfaces here
@@ -138,5 +140,125 @@ describe('ExceptionsDashboard', () => {
     );
     // The tabs survive: one failing queue must not take the other eleven down.
     expect(screen.getAllByRole('tab')).toHaveLength(12);
+  });
+});
+
+describe('P-07 · resolving a duplicate punch', () => {
+  const punch = {
+    id: 'p1',
+    userId: 'u1',
+    userName: 'Aisha Khan',
+    employeeCode: 'E-001',
+    date: '2026-08-12',
+    type: 'CHECK_IN',
+    version: 1,
+  };
+
+  it('keeps a flagged pair without pretending to clear the engine flag', () => {
+    render(
+      <DuplicatePunchDialog
+        punch={punch}
+        open
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    // The point a reader has to understand: keeping it does not un-flag it.
+    expect(screen.getByText(/stays as it is/i)).toBeInTheDocument();
+  });
+
+  it('sends keep to its own action, carrying the reason', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <DuplicatePunchDialog
+        punch={punch}
+        open
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/reason/i), 'Two genuine taps');
+    await user.click(screen.getByRole('button', { name: /keep it/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      'keep',
+      expect.objectContaining({ reason: 'Two genuine taps' }),
+    );
+  });
+
+  it('sends remove with the version it was decided against (FR-4.12)', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    render(
+      <DuplicatePunchDialog
+        punch={punch}
+        open
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/reason/i), 'A real duplicate');
+    await user.click(screen.getByRole('button', { name: /remove the punch/i }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      'remove',
+      expect.objectContaining({ version: 1 }),
+    );
+  });
+
+  it('will not decide either way without a reason', () => {
+    render(
+      <DuplicatePunchDialog
+        punch={punch}
+        open
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /keep it/i })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: /remove the punch/i }),
+    ).toBeDisabled();
+  });
+});
+
+describe('P-06 · a configuration value nobody has set', () => {
+  const gap = {
+    id: 't1:ptoValidityDays',
+    teamId: 't1',
+    entity: 'General',
+    field: 'ptoValidityDays',
+    why: 'How long a PTO award stays valid',
+  };
+
+  it('names the entity and the outstanding field (FR-3.13)', () => {
+    render(<MissingConfigurationDialog gap={gap} open onClose={vi.fn()} />);
+
+    expect(screen.getByText('General')).toBeInTheDocument();
+    expect(screen.getByText('ptoValidityDays')).toBeInTheDocument();
+    expect(
+      screen.getByText(/how long a pto award stays valid/i),
+    ).toBeInTheDocument();
+  });
+
+  it('sends the reader to the one screen that owns the value', () => {
+    render(<MissingConfigurationDialog gap={gap} open onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole('link', { name: /set it on the team/i }),
+    ).toHaveAttribute('href', '/teams/t1');
+  });
+
+  it('offers no dismiss — only setting the value clears it (DC-6)', () => {
+    render(<MissingConfigurationDialog gap={gap} open onClose={vi.fn()} />);
+
+    expect(
+      screen.queryByRole('button', { name: /dismiss|ignore/i }),
+    ).not.toBeInTheDocument();
   });
 });
