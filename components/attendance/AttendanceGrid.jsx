@@ -17,6 +17,7 @@ import Typography from '@mui/material/Typography';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAttendanceMutations } from '../../hooks/useAttendanceMutations.js';
+import { hideBelow } from '../../utils/columnPriority.js';
 import { effective, hasOverride } from '../../utils/dayRecord.js';
 import { formatDuration } from '../../utils/duration.js';
 import { exceptionLabel } from '../../utils/exceptionLabels.js';
@@ -112,13 +113,16 @@ export function AttendanceGrid({
         <Table>
           <TableHead>
             <TableRow>
+              {/* Employee, worked and status are what the day is read for.
+                  Punches are the evidence behind Worked and Late, and day
+                  type behind Status, so each leaves before what it explains. */}
               <TableCell>Employee</TableCell>
-              <TableCell>Punches</TableCell>
+              <TableCell sx={hideBelow('lg')}>Punches</TableCell>
               <TableCell>Worked</TableCell>
-              <TableCell>Day type</TableCell>
+              <TableCell sx={hideBelow('lg')}>Day type</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Late</TableCell>
-              <TableCell>Deduction</TableCell>
+              <TableCell sx={hideBelow('md')}>Late</TableCell>
+              <TableCell sx={hideBelow('md')}>Deduction</TableCell>
               <TableCell>{canWrite ? 'Actions' : ''}</TableCell>
             </TableRow>
           </TableHead>
@@ -144,7 +148,7 @@ export function AttendanceGrid({
                     </Stack>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell sx={hideBelow('lg')}>
                     {pairs.length === 0 ? (
                       <Typography color='text.secondary'>—</Typography>
                     ) : (
@@ -164,7 +168,7 @@ export function AttendanceGrid({
                     </Typography>
                   </TableCell>
 
-                  <TableCell>{record.dayType}</TableCell>
+                  <TableCell sx={hideBelow('lg')}>{record.dayType}</TableCell>
 
                   <TableCell>
                     <DayStatusChip
@@ -173,13 +177,13 @@ export function AttendanceGrid({
                     />
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell sx={hideBelow('md')}>
                     <Typography variant='mono'>
                       {late === 0 ? '—' : `${late}m`}
                     </Typography>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell sx={hideBelow('md')}>
                     <Stack spacing={0.25}>
                       <Typography variant='mono'>
                         {deduction === 0 ? '—' : deduction}

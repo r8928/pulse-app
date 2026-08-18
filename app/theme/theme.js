@@ -30,6 +30,17 @@ const FONT_MONO = 'var(--font-mono), ui-monospace, monospace';
 // tabular, lining numerals.
 const TABULAR = 'tabular-nums lining-nums';
 
+/**
+ * The floor for anything a finger is expected to hit (`DESIGN.md` § Layout).
+ *
+ * Deliberately a floor on the *target*, not on density. `Table`, `TextField`
+ * and `Chip` stay `size='small'`: these screens are read as tables, and
+ * inflating every row to 44px would trade the thing they exist for. Where a
+ * dense row carries a touchable control, the control grows and the row does
+ * not.
+ */
+export const TOUCH_TARGET = 44;
+
 const capitalise = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 
 /** Chip variant names, one per status key. Components select these by `variant`. */
@@ -217,6 +228,38 @@ export const theme = createTheme({
     MuiButton: {
       defaultProps: { disableElevation: true },
       styleOverrides: { root: { textTransform: 'none' } },
+    },
+
+    // Interactions are keyboard-first, then touch, then mouse. These three are
+    // the controls a finger actually lands on.
+    MuiIconButton: {
+      styleOverrides: {
+        root: { minWidth: TOUCH_TARGET, minHeight: TOUCH_TARGET },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: { root: { minHeight: TOUCH_TARGET } },
+    },
+    MuiListItemButton: {
+      styleOverrides: { root: { minHeight: TOUCH_TARGET } },
+    },
+
+    MuiDialog: {
+      defaultProps: { maxWidth: 'sm', fullWidth: true },
+      styleOverrides: {
+        // Below sm a dialog fills the screen. A dialog that scrolls inside a
+        // scrolling page on a phone is worse than a screen would have been.
+        paper: ({ theme: t }) => ({
+          [t.breakpoints.down('sm')]: {
+            margin: 0,
+            width: '100%',
+            maxWidth: '100%',
+            height: '100%',
+            maxHeight: '100%',
+            borderRadius: 0,
+          },
+        }),
+      },
     },
   },
 });

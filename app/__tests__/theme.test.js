@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { darkColors, lightColors, STATUS_KEYS } from '../theme/colors.js';
-import { STATUS_VARIANTS, theme } from '../theme/theme.js';
+import { STATUS_VARIANTS, TOUCH_TARGET, theme } from '../theme/theme.js';
 
 // --- WCAG contrast helpers -------------------------------------------------
 // Test-only. NFR-12 and DC-11 require WCAG 2.1 AA contrast, which is a claim
@@ -284,5 +284,41 @@ describe('theme interaction', () => {
 
   it('exposes a single radius scale rather than per-component magic numbers', () => {
     expect(typeof theme.shape.borderRadius).toBe('number');
+  });
+});
+
+// --- touch and responsive --------------------------------------------------
+
+describe('theme input targets', () => {
+  it('gives an icon button a 44px target, since touch outranks mouse', () => {
+    // DESIGN.md puts the floor on the target, not on density: tables, fields
+    // and chips stay size='small'.
+    const root = theme.components.MuiIconButton.styleOverrides.root;
+    expect(root.minWidth).toBe(TOUCH_TARGET);
+    expect(root.minHeight).toBe(TOUCH_TARGET);
+  });
+
+  it('gives a menu item a 44px target', () => {
+    expect(theme.components.MuiMenuItem.styleOverrides.root.minHeight).toBe(
+      TOUCH_TARGET,
+    );
+  });
+
+  it('keeps rows dense, so the target floor did not become a density change', () => {
+    expect(theme.components.MuiTable.defaultProps.size).toBe('small');
+    expect(theme.components.MuiTextField.defaultProps.size).toBe('small');
+  });
+});
+
+describe('theme dialogs', () => {
+  it('fills the screen below sm, rather than scrolling inside a scrolling page', () => {
+    const paper = resolveVariant(
+      theme.components.MuiDialog.styleOverrides.paper,
+    );
+    const down = theme.breakpoints.down('sm');
+
+    expect(paper[down]).toBeDefined();
+    expect(paper[down].maxWidth).toBe('100%');
+    expect(paper[down].margin).toBe(0);
   });
 });

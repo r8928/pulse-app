@@ -873,6 +873,39 @@
       ],
       "darkTokenPrefix": "dark-",
       "previewClass": "ds-dark"
+    },
+    "layout": {
+      "sizingPriority": [
+        "tablet",
+        "mobile",
+        "desktop"
+      ],
+      "inputPriority": [
+        "keyboard",
+        "touch",
+        "mouse"
+      ],
+      "referenceWidth": "834px",
+      "contentMaxWidth": "1440px",
+      "touchTarget": "44px",
+      "navigationBands": [
+        {
+          "band": "below sm",
+          "treatment": "Temporary drawer behind a menu button",
+          "width": "232px"
+        },
+        {
+          "band": "sm to lg",
+          "treatment": "Permanent icon rail, labels in the accessible name",
+          "width": "72px"
+        },
+        {
+          "band": "lg and up",
+          "treatment": "Permanent drawer, icon plus label",
+          "width": "232px"
+        }
+      ],
+      "note": "Supersedes the desktop-first ordering recorded as D-4. The touch target is a floor on the control, not on row density: tables, fields and chips stay size=\"small\"."
     }
   },
   "components": [
@@ -971,11 +1004,13 @@
     "keyCharacteristics": [
       "Near-neutral greys; a single restrained citrus accent, in either scheme",
       "Two colour schemes: hue is constant, lightness flips",
+      "Sized for the tablet first — a 72px icon rail is the reference band",
+      "Content is capped and centred rather than stretched to the window",
       "Flat surfaces separated by 1px borders, never by shadow",
       "Dense by default — small tables, small fields, small chips",
       "Tabular figures so a column of durations or balances aligns on the decimal",
       "Status always carries an icon and a word, never colour alone",
-      "A visible focus ring on everything focusable"
+      "A visible focus ring on everything focusable, and a 44px touch target"
     ],
     "rules": [
       {
@@ -997,20 +1032,40 @@
         "name": "The Both-Schemes Rule",
         "body": "A token that carries text is defined in both lightColors and darkColors, and the two objects are required to hold identical keys. A component needing a scheme-dependent style uses theme.applyStyles(‘dark’, …) or theme.vars, and never spells out the selector — that would be a second place for the scheme to be configured.",
         "section": "colors"
+      },
+      {
+        "name": "The One List Rule",
+        "body": "The navigation is built once from visibleNavigation and rendered into each band. A band that maintains its own copy of the list will drift from the others the first time a permission moves.",
+        "section": "layout"
+      },
+      {
+        "name": "The Reachable Screen Rule",
+        "body": "A screen that exists, is routed and is permission-gated must be reachable by clicking. S-08 and S-11 were both built, both gated and both reachable only by typing the URL, which made them invisible to the people they were built for.",
+        "section": "layout"
+      },
+      {
+        "name": "The Column Priority Rule",
+        "body": "A table that cannot fit declares which columns leave first via hideBelow, so the identifying column and the figure the screen exists to show survive to the narrowest width. A horizontal scrollbar on a data table is a last resort and a silently clipped row is a defect.",
+        "section": "layout"
       }
     ],
     "dos": [
       "Do put every hex in app/theme/colors.js and select it through a theme variant.",
       "Do add a new token to both lightColors and darkColors, or to neither.",
       "Do reach for theme.vars or theme.applyStyles for anything scheme-dependent.",
-      "Do keep the accent for action, and status colour for status."
+      "Do keep the accent for action, and status colour for status.",
+      "Do give any control a finger lands on a 44px target, without inflating the row.",
+      "Do mark a low-priority column with hideBelow on both its header and its body cell.",
+      "Do link every routed, permission-gated screen from somewhere clickable."
     ],
     "donts": [
       "Don't build a status style map in sx — select a statusX chip variant.",
       "Don't set fontSize, fontWeight or fontFamily outside the theme.",
       "Don't spell out the dark-scheme selector; ask the theme for it.",
       "Don't convey any state by colour alone.",
-      "Don't add a second radius. There is one, and it is 6px."
+      "Don't add a second radius. There is one, and it is 6px.",
+      "Don't let a data table overflow instead of declaring column priority.",
+      "Don't reach for row density to solve a touch-target problem."
     ]
   }
 }

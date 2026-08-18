@@ -364,16 +364,44 @@ meaningful to a screen reader.
 
 ## Layout
 
-**Sizing priority is desktop, then mobile, then tablet.** Pulse is an
-operational tool used at a desk for long stretches; the phone case is a lookup,
-and the tablet case is rare.
+**Sizing priority is tablet, then mobile, then desktop.** The reference layout
+is a **landscape tablet at roughly 834px**; desktop and phone both adapt from
+it. Interactions are designed **keyboard-first, then touch, then mouse**.
 
-**The shell.** A permanent 232px `Drawer` on the left, and a fixed `AppBar`
-above it at `zIndex.drawer + 1`. The AppBar carries no shadow — it is separated
-by a single bottom border in Rule. Navigation items are icon plus label with a
-36px icon column, and the current item is marked both by `selected` styling and
-by `aria-current='page'`, because the tinted background alone is colour-only
-signalling.
+This reverses the earlier desktop-first ordering (`D-4`, superseded). Designing
+at the widest size first had let the middle sizes rot: the shell put a permanent
+232px drawer on screen from 600px upward, which left a ~360px column for tables
+that exist to be read — the sizes between a phone and a laptop were the ones
+nobody had actually laid out. Starting from the tablet makes that band the
+default case rather than the leftover.
+
+**The shell, in three bands.** One navigation list, rendered into whichever
+container the width calls for, so a permission edit reaches all three together
+and they can never drift.
+
+| Band | Navigation | Why |
+| ---- | ---------- | --- |
+| below `sm` | Temporary drawer behind a menu button | A 232px permanent drawer on a phone leaves no room for the table |
+| `sm` to `lg` | Permanent 72px icon rail, labels on hover and in the accessible name | The reference band. Keeps orientation without spending a third of the width on it |
+| `lg` and up | Permanent 232px drawer, icon plus label | Space is no longer scarce, so the label is free |
+
+A fixed `AppBar` sits above all three at `zIndex.drawer + 1`, carrying no shadow
+— it is separated by a single bottom border in Rule. The current item is marked
+both by `selected` styling and by `aria-current='page'`, because a tinted
+background alone is colour-only signalling.
+
+**Centred, bounded content.** The main region is capped and centred rather than
+running to the edge of the window. A 24-column table stretched across a 27-inch
+monitor puts the row's first and last cell a head-turn apart, which is a reading
+failure rather than good use of space. The cap is generous enough that the
+reference tablet layout is never letterboxed.
+
+**Touch targets.** Any control a finger is expected to hit is at least 44px in
+its smallest dimension — navigation items, icon buttons, menu items, row
+actions. This is a floor on the *target*, not on density: `Table`, `TextField`
+and `Chip` stay `size='small'` theme-wide, because these screens are read as
+tables rather than brochures. Where a dense row needs a touchable control, the
+control grows and the row does not.
 
 **Content rhythm.** The main region is a `Stack` with `p: 3` and `gap: 3` on the
 8px base — 24px of padding, 24px between blocks. Within a block, `spacing={2}`
@@ -382,9 +410,14 @@ its value. There is no custom padding anywhere; if a gap needs a value that is
 not a multiple of the base, the layout is wrong rather than the base.
 
 **Grids.** Tile rows use `Grid container spacing={2}` with
-`size={{ xs: 12, sm: 6, md: 4 }}` — three across on a desktop, two on a small
-laptop, stacked on a phone. Form fields inside dialogs pair up with
+`size={{ xs: 12, sm: 6, md: 4 }}` — stacked on a phone, two across on the
+reference tablet, three on a desktop. Form fields inside dialogs pair up with
 `size={{ xs: 12, sm: 6 }}`.
+
+**Tables narrow by priority, never by overflow.** A table that cannot fit
+declares which columns leave first, so the identifying column and the one the
+screen exists to show survive to the narrowest width. A horizontal scrollbar on
+a data table is a last resort, and a row that silently clips is a defect.
 
 **Breakpoints** are MUI's defaults, uncustomised. There is no bespoke breakpoint
 in the theme and none should be added without a reason that the defaults
@@ -393,9 +426,10 @@ demonstrably cannot serve.
 **Density.** `Table`, `TextField` and `Chip` all default to `size='small'`
 theme-wide. These screens are read as tables, not brochures.
 
-**Widths.** Dialogs are `maxWidth='sm' fullWidth`. Explanatory prose in an empty
-state is capped at 460px, because a centred paragraph running the full width of
-a desktop table is unreadable.
+**Widths.** Dialogs are `maxWidth='sm' fullWidth`, and go `fullScreen` below
+`sm` — a dialog that needs scrolling inside a scrolling page on a phone is worse
+than a screen. Explanatory prose in an empty state is capped at 460px, because a
+centred paragraph running the full width of a table is unreadable.
 
 **Paging, not scrolling.** Any view that can cover the full company pages or
 virtualises rather than materialising every row (`NFR-3`, `DC-10`). A screen
@@ -407,6 +441,15 @@ that renders 1000 rows is a defect even when it looks correct.
 `spacing` / `rowSpacing` / `columnSpacing` on `Grid`. A custom margin or padding
 value in `sx` means a step is missing from the scale, not that this case is
 special.
+
+**The One List Rule.** The navigation is built once from `visibleNavigation` and
+rendered into each band. A band that maintains its own copy of the list will
+drift from the others the first time a permission moves.
+
+**The Reachable Screen Rule.** A screen that exists, is routed and is
+permission-gated must be reachable by clicking. `S-08` and `S-11` were both
+built, both gated and both reachable only by typing the URL, which made them
+invisible to the people they were built for.
 
 ## Elevation & Depth
 
@@ -555,21 +598,32 @@ The compositions every remaining screen assembles from the components above.
 - **Don't** render a blank grid where an `EmptyState` belongs.
 - **Don't** add a second radius. There is one, and it is 6px.
 
-### Closed gap · `P4`
+### Closed gap · the middle sizes
 
-The shell now carries its mobile treatment. `AppShell` renders a
-`variant='permanent'` drawer at `sm` and above and a `variant='temporary'` one
-below it, behind a menu button in the `AppBar`. Both are built from a single
-`visibleNavigation` result, so an `S-19` permission edit reaches the phone and
-the desktop together and the two can never drift.
+The shell carries all three bands. `AppShell` renders a `variant='temporary'`
+drawer below `sm` behind a menu button, a permanent 72px icon rail from `sm` to
+`lg`, and a permanent 232px drawer at `lg` and above. All three are built from a
+single `visibleNavigation` result, so an `S-19` permission edit reaches every
+band together and they can never drift.
 
-Under the desktop → mobile → tablet priority the permanent drawer stays the
-primary case and carries no toggle. The tablet case is served by the same
-`sm` boundary.
+Under the tablet → mobile → desktop priority the icon rail is the primary case.
+The `sm` to `lg` band — a landscape tablet, a small laptop, a split-screen
+window — was previously served by a permanent 232px drawer that left roughly
+360px for the table, which is what this closes.
 
-**This document now has no outstanding work.** Everything here — the palette, the type scale, the four token surfaces,
-the component variants and the screen archetypes — is delivered and carries no
-phase. `ARCHITECTURE.md`'s header says it plainly: **do not change this
-document while building.** A design-token edit that lands mid-phase breaks
+### Superseded · `D-4`
+
+`docs/superpowers/specs/2026-08-12-design-md-rework-design.md` recorded the
+sizing order as desktop → mobile → tablet. That decision is superseded: the
+order is now **tablet → mobile → desktop**, and interactions are keyboard →
+touch → mouse. The original reasoning is kept in that document rather than
+rewritten, because the reason it was changed is worth more than a clean record.
+
+**This document is otherwise complete.** The palette, the type scale, the four
+token surfaces, the component variants and the screen archetypes are delivered
+and carry no phase. `ARCHITECTURE.md`'s header still says **do not change this
+document while building** — a design-token edit landing mid-phase breaks
 `app/__tests__/theme.test.js` and forces all four surfaces to move together
-(`CLAUDE.md`), which is not work any implementation phase should absorb.
+(`CLAUDE.md`), which is not work an implementation phase should absorb. The
+colour-scheme and sizing changes recorded here were made deliberately and
+outside that constraint, at the user's direction.

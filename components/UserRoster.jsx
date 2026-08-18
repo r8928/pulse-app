@@ -1,6 +1,6 @@
 'use client';
 
-import Alert from '@mui/material/Alert';
+import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -13,6 +13,8 @@ import Typography from '@mui/material/Typography';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useUserMutations } from '../hooks/useUserMutations.js';
+import { hideBelow } from '../utils/columnPriority.js';
+import { EmptyState } from './EmptyState.jsx';
 import { PageHeader } from './PageHeader.jsx';
 import { UserFormDialog } from './UserFormDialog.jsx';
 import { UserStatusChips } from './UserStatusChips.jsx';
@@ -30,10 +32,28 @@ export function UserRoster({
   total,
   activeCount,
   canWrite,
+  canImport,
   employmentTypes,
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { createUser, pending, error } = useUserMutations();
+
+  /**
+   * S-08 is routed and permission-gated but was linked from nowhere, which
+   * made the go-live migration reachable only by typing its URL. It is offered
+   * from the header and from the empty state, because the empty roster is
+   * exactly when it is needed.
+   */
+  const importAction = (
+    <Button
+      component={Link}
+      href='/users/import'
+      variant='outlined'
+      startIcon={<UploadFileOutlined />}
+    >
+      Import from workbook
+    </Button>
+  );
 
   return (
     <Stack spacing={3}>
@@ -46,30 +66,37 @@ export function UserRoster({
           </Typography>
         }
         actions={
-          canWrite ? (
-            <Button variant='contained' onClick={() => setDialogOpen(true)}>
-              New user
-            </Button>
-          ) : null
+          <>
+            {canImport ? importAction : null}
+            {canWrite ? (
+              <Button variant='contained' onClick={() => setDialogOpen(true)}>
+                New user
+              </Button>
+            ) : null}
+          </>
         }
       />
 
       {users.length === 0 ? (
-        <Alert severity='info'>
-          No users yet. Run <code>npm run seed</code> to load the demo roster,
-          or import the existing roster from the old workbook.
-        </Alert>
+        <EmptyState
+          title='No people yet'
+          description='The roster is empty. Import the existing people from the old workbook — it reads their code and name, then asks for everything the sheet cannot supply.'
+          action={canImport ? importAction : null}
+        />
       ) : (
         <Paper variant='outlined'>
           <Table>
             <TableHead>
               <TableRow>
+                {/* Name, code and status are never dropped: the first two
+                    identify the row and the third is what the screen is read
+                    for. Everything else leaves by priority. */}
                 <TableCell>Name</TableCell>
                 <TableCell>Employee code</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Employment type</TableCell>
-                <TableCell>Date of joining</TableCell>
-                <TableCell>Date of leaving</TableCell>
+                <TableCell sx={hideBelow('sm')}>Role</TableCell>
+                <TableCell sx={hideBelow('lg')}>Employment type</TableCell>
+                <TableCell sx={hideBelow('md')}>Date of joining</TableCell>
+                <TableCell sx={hideBelow('lg')}>Date of leaving</TableCell>
                 <TableCell>Status</TableCell>
               </TableRow>
             </TableHead>
@@ -82,12 +109,14 @@ export function UserRoster({
                   <TableCell>
                     <Typography variant='mono'>{user.employeeCode}</Typography>
                   </TableCell>
-                  <TableCell>{user.role}</TableCell>
-                  <TableCell>{user.employmentType}</TableCell>
-                  <TableCell>
+                  <TableCell sx={hideBelow('sm')}>{user.role}</TableCell>
+                  <TableCell sx={hideBelow('lg')}>
+                    {user.employmentType}
+                  </TableCell>
+                  <TableCell sx={hideBelow('md')}>
                     <Typography variant='mono'>{user.dateOfJoining}</Typography>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={hideBelow('lg')}>
                     <Typography variant='mono'>
                       {user.dateOfLeaving ?? '—'}
                     </Typography>

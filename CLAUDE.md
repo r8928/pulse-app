@@ -56,7 +56,7 @@
 ## Responsive and Input Design
 
 - Forms and dialogs: Enter submits, Esc cancels. Implement via a real `<form onSubmit={...}>` with `event.preventDefault()`, `type='submit'` on the primary button, and `type='button'` on every other button.
-- Size for desktop first, then mobile, then tablet; design interactions keyboard-first, then mouse, then touch.
+- Size for tablet first, then mobile, then desktop; design interactions keyboard-first, then touch, then mouse. The reference layout is ~834px landscape tablet; desktop and phone both adapt from it. Centre content where the layout suits it rather than letting a table stretch to the edge of a wide monitor.
 
 ## Superpowers Workflow
 

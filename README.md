@@ -50,7 +50,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
 | Audit records on every mutation | Done |
 | Audit log: paged, filterable, read only (`S-22`) | Done |
-| Mobile navigation drawer below `sm` | Done |
+| Navigation in three bands: drawer, icon rail, full drawer | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture: daily grid, day detail, punch and override popups (`S-10`, `S-12`) | Done |
@@ -65,6 +65,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Report builder, annual summary, export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 | Light and dark colour schemes, chosen from the top bar | Done — CitrusBits palette, both schemes AA-verified |
+| Tablet-first sizing, 44px touch targets, column priority on tables | Done |
 
 Every collection exists already, so none of the above needs a migration.
 
@@ -135,6 +136,11 @@ prerender.
 anything scheme-dependent use `theme.applyStyles('dark', …)` or `theme.vars` —
 never spell out the `.dark` selector, or the scheme has two places it is
 configured.
+
+**A routed, gated screen must be linked from somewhere.** `S-08` and `S-11`
+were both built, both permission-gated and both reachable only by typing the
+URL, so the go-live roster import was invisible to the people who needed it.
+Adding a route is not shipping a screen.
 
 **Dates go through `date-fns`.** No `new Date()` for parsing or arithmetic.
 

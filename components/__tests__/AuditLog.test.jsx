@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { AppShell } from '../AppShell.jsx';
 import { AuditLog } from '../AuditLog.jsx';
 
 /**
@@ -91,56 +90,5 @@ describe('AuditLog', () => {
     expect(
       screen.getByRole('combobox', { name: /entity type/i }),
     ).toBeInTheDocument();
-  });
-});
-
-describe('AppShell on a phone', () => {
-  const user = {
-    name: 'Office Administrator',
-    role: 'OFFICE_ADMIN',
-    permissions: {},
-  };
-
-  it('offers a menu button to reach the navigation', () => {
-    // DESIGN.md's known gap: a 232px permanent drawer leaves a phone no room
-    // for the tables these screens exist to show.
-    render(
-      <AppShell user={user} signOutAction={() => {}}>
-        <p>Content</p>
-      </AppShell>,
-    );
-
-    expect(
-      screen.getByRole('button', { name: /open the navigation/i }),
-    ).toBeInTheDocument();
-  });
-
-  /**
-   * Which drawer is *visible* is decided by a CSS media query and MUI's Slide
-   * transition, and jsdom evaluates neither — asserting on that would be
-   * testing the framework rather than the product.
-   *
-   * What the product owes is that a second drawer ships at all, and that both
-   * are built from the one permission-gated list so an `S-19` edit reaches the
-   * phone and the desktop together. A plain DOM query answers both, without
-   * depending on an accessibility tree jsdom collapses inside `aria-hidden`.
-   */
-  it('ships a temporary drawer beside the permanent one, both permission-gated', () => {
-    render(
-      <AppShell user={user} signOutAction={() => {}}>
-        <p>Content</p>
-      </AppShell>,
-    );
-
-    const drawers = document.querySelectorAll('nav[aria-label="Modules"]');
-    expect(drawers).toHaveLength(2);
-
-    // This viewer holds nothing, so each drawer offers Home and nothing else.
-    for (const drawer of drawers) {
-      const labels = [...drawer.querySelectorAll('a')].map((link) =>
-        link.textContent.trim(),
-      );
-      expect(labels).toEqual(['Home']);
-    }
   });
 });

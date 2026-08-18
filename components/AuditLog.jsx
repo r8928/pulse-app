@@ -17,6 +17,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
+import { hideBelow } from '../utils/columnPriority.js';
 import { EmptyState } from './EmptyState.jsx';
 import { PageHeader } from './PageHeader.jsx';
 import { RecordHistoryDrawer } from './RecordHistoryDrawer.jsx';
@@ -176,12 +177,14 @@ export function AuditLog({
           <Table>
             <TableHead>
               <TableRow>
+                {/* Time, actor and action are the sentence the row is read
+                    as; the rest qualifies it and leaves first. */}
                 <TableCell>Time</TableCell>
                 <TableCell>Actor</TableCell>
                 <TableCell>Action</TableCell>
-                <TableCell>Entity type</TableCell>
-                <TableCell>Identifier</TableCell>
-                <TableCell>Reason</TableCell>
+                <TableCell sx={hideBelow('md')}>Entity type</TableCell>
+                <TableCell sx={hideBelow('lg')}>Identifier</TableCell>
+                <TableCell sx={hideBelow('md')}>Reason</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -198,13 +201,17 @@ export function AuditLog({
                   </TableCell>
                   <TableCell>{record.actorName ?? 'System'}</TableCell>
                   <TableCell>{record.action}</TableCell>
-                  <TableCell>{record.entityType}</TableCell>
-                  <TableCell>
+                  <TableCell sx={hideBelow('md')}>
+                    {record.entityType}
+                  </TableCell>
+                  <TableCell sx={hideBelow('lg')}>
                     <Typography variant='mono'>
                       {record.entityId ?? '—'}
                     </Typography>
                   </TableCell>
-                  <TableCell>{record.reason ?? '—'}</TableCell>
+                  <TableCell sx={hideBelow('md')}>
+                    {record.reason ?? '—'}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

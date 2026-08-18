@@ -1,11 +1,13 @@
 'use client';
 
 import AccessTimeOutlined from '@mui/icons-material/AccessTimeOutlined';
+import AccountCircleOutlined from '@mui/icons-material/AccountCircleOutlined';
 import AssessmentOutlined from '@mui/icons-material/AssessmentOutlined';
 import EventNoteOutlined from '@mui/icons-material/EventNoteOutlined';
 import GroupsOutlined from '@mui/icons-material/GroupsOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import HomeOutlined from '@mui/icons-material/HomeOutlined';
+import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import PeopleOutlined from '@mui/icons-material/PeopleOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
@@ -19,16 +21,34 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Toolbar from '@mui/material/Toolbar';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { ColorSchemeToggle } from './ColorSchemeToggle.jsx';
 import { visibleNavigation } from './navigation.js';
 
+/** The rail keeps orientation without spending a third of a tablet on it. */
+const RAIL_WIDTH = 72;
 const DRAWER_WIDTH = 232;
+
+/** A finger's target, per `DESIGN.md` § Layout. Row density is unaffected. */
+const TOUCH_TARGET = 44;
+
+/** Wide enough that the reference tablet is never letterboxed. */
+const CONTENT_MAX_WIDTH = 1440;
+
+/**
+ * The sign-out form lives outside the menu and is submitted by `form=`.
+ * A `<form>` inside `Menu` would be a child of its `<ul>`, which is invalid.
+ */
+const SIGN_OUT_FORM = 'sign-out';
 
 /**
  * Route to icon. Kept here rather than in `navigation.js` so that module stays
@@ -55,42 +75,67 @@ const isCurrent = (pathname, route) =>
  * Pure: the signed-in user arrives as a prop and sign-out leaves as a
  * callback. It reads no session of its own — every role-dependent decision
  * derives from `user.permissions`, the resolved map from `session.js`, so the
- * navigation follows an S-19 edit with no code change.
+ * navigation follows an `S-19` edit with no code change.
  *
- * **Two drawers, one list.** `DESIGN.md` sizes for desktop first, so the
- * permanent drawer is the primary case and carries no toggle. Below `sm` it is
- * replaced by a temporary one behind a menu button, because a 232px permanent
+ * **Three bands, one list.** `DESIGN.md` sizes for the tablet first, so the
+ * reference case is the `sm`-to-`lg` band: a permanent 72px icon rail. Below
+ * `sm` it becomes a temporary drawer behind a menu button, because a permanent
  * drawer on a phone leaves no room for the tables these screens exist to show.
- * The navigation itself is rendered once and shared, so the two can never
- * drift apart.
+ * At `lg` and above space is no longer scarce and the labels come back. The
+ * navigation is rendered once and shared, so the bands can never drift apart.
+ *
+ * Every item carries an `aria-label` whether or not its label is drawn: in the
+ * rail band the text is not rendered, and without it the rail would be a row of
+ * unnamed pictures to a screen reader.
  */
 export function AppShell({ user, signOutAction, children }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [account, setAccount] = useState(null);
   const items = visibleNavigation(user?.permissions);
 
-  const navigation = (
+  /**
+   * @param {boolean} labelled whether this band draws the label beside the icon
+   */
+  const navigation = (labelled) => (
     <List component='nav' aria-label='Modules'>
       {items.map((item) => {
         const Icon = ICONS[item.route];
         const current = isCurrent(pathname, item.route);
 
-        return (
+        const button = (
           <ListItemButton
             key={item.route}
             component={Link}
             href={item.route}
             selected={current}
             aria-current={current ? 'page' : undefined}
+            aria-label={item.label}
             // Following a link on a phone should close the drawer that
             // covered the thing being navigated to.
             onClick={() => setOpen(false)}
+            sx={{
+              minHeight: TOUCH_TARGET,
+              justifyContent: labelled ? 'flex-start' : 'center',
+            }}
           >
-            <ListItemIcon sx={{ minWidth: 36 }}>
+            <ListItemIcon
+              sx={{ minWidth: labelled ? 36 : 0, justifyContent: 'center' }}
+            >
               {Icon ? <Icon fontSize='small' /> : null}
             </ListItemIcon>
-            <ListItemText primary={item.label} />
+            {labelled ? <ListItemText primary={item.label} /> : null}
           </ListItemButton>
+        );
+
+        return labelled ? (
+          <li key={item.route}>{button}</li>
+        ) : (
+          <li key={item.route}>
+            <Tooltip title={item.label} placement='right'>
+              {button}
+            </Tooltip>
+          </li>
         );
       })}
     </List>
@@ -103,7 +148,7 @@ export function AppShell({ user, signOutAction, children }) {
         color='inherit'
         elevation={0}
         sx={{
-          zIndex: (theme) => theme.zIndex.drawer + 1,
+          zIndex: (t) => t.zIndex.drawer + 1,
           borderBottom: 1,
           borderColor: 'divider',
         }}
@@ -118,31 +163,86 @@ export function AppShell({ user, signOutAction, children }) {
               aria-label='Open the navigation'
               edge='start'
               onClick={() => setOpen(true)}
-              sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
+              sx={{
+                display: { xs: 'inline-flex', sm: 'none' },
+                minWidth: TOUCH_TARGET,
+                minHeight: TOUCH_TARGET,
+              }}
             >
               <MenuOutlined />
             </IconButton>
 
-            <Typography variant='sectionTitle' component='span'>
-              Pulse
-            </Typography>
+            <Stack
+              component={Link}
+              href='/'
+              direction='row'
+              spacing={1}
+              aria-label='Pulse, home'
+              sx={{
+                alignItems: 'center',
+                color: 'inherit',
+                textDecoration: 'none',
+              }}
+            >
+              {/* Decorative: the wordmark beside it already names the product. */}
+              <Image
+                src='/citrusbits-logo.jpg'
+                alt=''
+                width={28}
+                height={28}
+                priority
+              />
+              <Typography variant='sectionTitle' component='span'>
+                Pulse
+              </Typography>
+            </Stack>
           </Stack>
 
-          <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+          <Stack direction='row' spacing={1} sx={{ alignItems: 'center' }}>
             <ColorSchemeToggle />
-            <Stack sx={{ textAlign: 'right' }}>
-              <Typography variant='bodyStrong'>{user.name}</Typography>
-              {/* NFR-2: the role is spelled out rather than abbreviated. */}
-              <Typography variant='metricLabel'>{user.role}</Typography>
-            </Stack>
-            <form action={signOutAction}>
-              <Button type='submit' variant='outlined' size='small'>
-                Sign out
-              </Button>
-            </form>
+
+            <Button
+              onClick={(event) => setAccount(event.currentTarget)}
+              aria-haspopup='menu'
+              aria-expanded={account ? 'true' : undefined}
+              startIcon={<AccountCircleOutlined />}
+              color='inherit'
+              sx={{ minHeight: TOUCH_TARGET }}
+            >
+              {user.name}
+            </Button>
           </Stack>
         </Toolbar>
       </AppBar>
+
+      {/* Submitted by the menu item below, which cannot contain it. */}
+      <form action={signOutAction} id={SIGN_OUT_FORM} />
+
+      <Menu
+        anchorEl={account}
+        open={Boolean(account)}
+        onClose={() => setAccount(null)}
+      >
+        <Stack sx={{ px: 2, py: 1 }}>
+          <Typography variant='bodyStrong'>{user.name}</Typography>
+          {/* NFR-2: the role is spelled out rather than abbreviated. */}
+          <Typography variant='metricLabel'>{user.role}</Typography>
+        </Stack>
+
+        <Divider />
+
+        <MenuItem
+          component='button'
+          type='submit'
+          form={SIGN_OUT_FORM}
+          sx={{ width: '100%', minHeight: TOUCH_TARGET }}
+        >
+          <ListItemIcon sx={{ minWidth: 36 }}>
+            <LogoutOutlined fontSize='small' />
+          </ListItemIcon>
+          Sign out
+        </MenuItem>
+      </Menu>
 
       <Drawer
         variant='temporary'
@@ -162,13 +262,33 @@ export function AppShell({ user, signOutAction, children }) {
       >
         <Toolbar />
         <Divider />
-        {navigation}
+        {navigation(true)}
       </Drawer>
 
+      {/* The rail: the reference band, sm to lg. */}
       <Drawer
         variant='permanent'
         sx={{
-          display: { xs: 'none', sm: 'block' },
+          display: { xs: 'none', sm: 'block', lg: 'none' },
+          width: RAIL_WIDTH,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: RAIL_WIDTH,
+            boxSizing: 'border-box',
+            overflowX: 'hidden',
+          },
+        }}
+      >
+        <Toolbar />
+        <Divider />
+        {navigation(false)}
+      </Drawer>
+
+      {/* Labels return once the width can afford them. */}
+      <Drawer
+        variant='permanent'
+        sx={{
+          display: { xs: 'none', lg: 'block' },
           width: DRAWER_WIDTH,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
@@ -179,12 +299,24 @@ export function AppShell({ user, signOutAction, children }) {
       >
         <Toolbar />
         <Divider />
-        {navigation}
+        {navigation(true)}
       </Drawer>
 
       <Stack component='main' sx={{ flexGrow: 1, minWidth: 0 }}>
         <Toolbar />
-        <Stack sx={{ p: 3, gap: 3 }}>{children}</Stack>
+        {/* Capped and centred: a row whose first and last cell are a head-turn
+            apart on a wide monitor is a reading failure, not use of space. */}
+        <Stack
+          sx={{
+            p: 3,
+            gap: 3,
+            width: '100%',
+            maxWidth: CONTENT_MAX_WIDTH,
+            mx: 'auto',
+          }}
+        >
+          {children}
+        </Stack>
       </Stack>
     </Stack>
   );

@@ -31,6 +31,7 @@ export default async function UsersPage({ searchParams }) {
       total={total}
       activeCount={activeCount}
       canWrite={Boolean(user.permissions[PERMISSIONS.USER_WRITE])}
+      canImport={Boolean(user.permissions[PERMISSIONS.USER_IMPORT])}
       employmentTypes={Object.values(EMPLOYMENT_TYPE_SEEDS)}
     />
   );

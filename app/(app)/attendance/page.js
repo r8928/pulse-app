@@ -1,7 +1,10 @@
+import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
+import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import { endOfMonth, format, startOfMonth } from 'date-fns';
 import { AttendanceOverview } from '../../../components/attendance/AttendanceOverview.jsx';
 import { PageHeader } from '../../../components/PageHeader.jsx';
+import { PERMISSIONS } from '../../../constants/index.js';
 import { listTeams, summariseAttendance } from '../../../database.js';
 import { getSessionUser } from '../../../session.js';
 
@@ -52,6 +55,20 @@ export default async function AttendanceOverviewPage({ searchParams }) {
       <PageHeader
         title='Attendance'
         description='What the engine concluded for every colleague over a chosen range. A colleague who has left keeps unchanged figures inside their employment period, marked as no longer active.'
+        actions={
+          // S-11 is routed and gated but was linked from nowhere. `href`
+          // rather than `component={Link}`: this is a server component, and
+          // passing the component through fails the build.
+          viewer.permissions[PERMISSIONS.ATTENDANCE_IMPORT] ? (
+            <Button
+              href='/attendance/import'
+              variant='outlined'
+              startIcon={<UploadFileOutlined />}
+            >
+              Import punches
+            </Button>
+          ) : null
+        }
       />
 
       <AttendanceOverview
