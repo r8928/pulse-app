@@ -1,10 +1,18 @@
 import { createTheme } from '@mui/material/styles';
-import { colors, STATUS_KEYS } from './colors.js';
+import { darkColors, lightColors, STATUS_KEYS } from './colors.js';
 
 /**
  * The Pulse theme. Radii, spacing and typography metrics live here; hexes live
  * in `colors.js`. Components must not set fontSize, fontWeight or fontFamily
  * themselves — they select a variant defined below.
+ *
+ * **Two colour schemes, one theme.** `cssVariables.colorSchemeSelector: 'class'`
+ * makes MUI emit both palettes as CSS custom properties switched by a class on
+ * `<html>`. `InitColorSchemeScript` in the root layout writes that class before
+ * the first paint, so there is no flash of the wrong scheme, and switching is a
+ * class change rather than a re-render. Nothing in the app stores the choice
+ * itself — `useColorScheme()` persists it to localStorage — which is what keeps
+ * this off the React Context API that `CLAUDE.md` forbids.
  *
  * There is deliberately no shadow scale. Pulse is flat: surfaces are separated
  * by a 1px border and the recessed `surfaceMuted` tone, never by elevation.
@@ -30,52 +38,83 @@ export const STATUS_VARIANTS = STATUS_KEYS.map(
 );
 
 /**
+ * One palette per scheme, built from the same role names.
+ *
+ * `surfaceMuted`, `borderStrong` and `focusRing` are carried as custom palette
+ * keys rather than left in `colors.js` alone, so they are emitted as CSS
+ * variables too and a component can reach them through the theme like any
+ * other token.
+ */
+const paletteFor = (mode, colors) => ({
+  mode,
+  background: {
+    default: colors.background,
+    paper: colors.surface,
+  },
+  primary: {
+    main: colors.accent,
+    dark: colors.accentHover,
+    light: colors.accentSurface,
+    contrastText: colors.textOnAccent,
+  },
+  text: {
+    primary: colors.textPrimary,
+    secondary: colors.textSecondary,
+  },
+  divider: colors.border,
+  surfaceMuted: colors.surfaceMuted,
+  borderStrong: colors.borderStrong,
+  focusRing: colors.focusRing,
+  success: { main: colors.success.text, light: colors.success.surface },
+  warning: { main: colors.warning.text, light: colors.warning.surface },
+  error: { main: colors.danger.text, light: colors.danger.surface },
+  info: { main: colors.info.text, light: colors.info.surface },
+});
+
+/**
  * Status is never conveyed by colour alone (NFR-12, DC-11). Each variant
  * publishes a gap custom property that reserves room for the icon every status
  * chip is required to render alongside its label.
+ *
+ * The style is a callback because a chip has to answer to both schemes:
+ * `theme.applyStyles('dark', …)` attaches the dark branch under whichever
+ * selector the theme is configured with, so the selector is never spelled out
+ * here and cannot fall out of step with `colorSchemeSelector`.
  */
 const statusChipVariants = STATUS_KEYS.map((key) => ({
   props: { variant: `status${capitalise(key)}` },
-  style: {
+  style: ({ theme }) => ({
     '--status-icon-gap': '6px',
-    color: colors[key].text,
-    backgroundColor: colors[key].surface,
-    border: `1px solid ${colors[key].border}`,
+    color: lightColors[key].text,
+    backgroundColor: lightColors[key].surface,
+    border: `1px solid ${lightColors[key].border}`,
     fontWeight: 600,
     '& .MuiChip-icon': {
       color: 'inherit',
       marginInlineEnd: 'var(--status-icon-gap)',
     },
-  },
+    ...theme.applyStyles('dark', {
+      color: darkColors[key].text,
+      backgroundColor: darkColors[key].surface,
+      borderColor: darkColors[key].border,
+    }),
+  }),
 }));
 
 export const theme = createTheme({
+  cssVariables: {
+    colorSchemeSelector: 'class',
+  },
+
+  colorSchemes: {
+    light: { palette: paletteFor('light', lightColors) },
+    dark: { palette: paletteFor('dark', darkColors) },
+  },
+
   spacing: 8,
 
   shape: {
     borderRadius: 6,
-  },
-
-  palette: {
-    mode: 'light',
-    background: {
-      default: colors.background,
-      paper: colors.surface,
-    },
-    primary: {
-      main: colors.accent,
-      dark: colors.accentHover,
-      contrastText: colors.textOnAccent,
-    },
-    text: {
-      primary: colors.textPrimary,
-      secondary: colors.textSecondary,
-    },
-    divider: colors.border,
-    success: { main: colors.success.text, light: colors.success.surface },
-    warning: { main: colors.warning.text, light: colors.warning.surface },
-    error: { main: colors.danger.text, light: colors.danger.surface },
-    info: { main: colors.info.text, light: colors.info.surface },
   },
 
   typography: {
@@ -103,7 +142,6 @@ export const theme = createTheme({
       lineHeight: 1.4,
       letterSpacing: '0.04em',
       textTransform: 'uppercase',
-      color: colors.textSecondary,
     },
     metricValue: {
       fontFamily: FONT_SANS,
@@ -128,26 +166,23 @@ export const theme = createTheme({
 
   components: {
     MuiCssBaseline: {
-      styleOverrides: `
-        :root {
-          color-scheme: light;
-        }
+      // Note the signature: CssBaseline hands its override callback the theme
+      // *itself*, where a component `variants` entry is handed `{ theme }`.
+      // Destructuring this one the other way yields `undefined.vars` and fails
+      // only at prerender, so it is spelled out here rather than inferred.
+      styleOverrides: (t) => ({
+        // Keyboard navigation is a first-class input mode (NFR-12, DC-11).
+        // Never remove this ring without replacing it with a visible one.
+        ':focus-visible': {
+          outline: `2px solid ${t.vars.palette.focusRing}`,
+          outlineOffset: '2px',
+          borderRadius: '3px',
+        },
 
-        /* Keyboard navigation is a first-class input mode (NFR-12, DC-11).
-           Never remove this ring without replacing it with a visible one. */
-        :focus-visible {
-          outline: 2px solid ${colors.focusRing};
-          outline-offset: 2px;
-          border-radius: 3px;
-        }
-
-        /* A dense grid still has to be readable when a row wraps. */
-        body {
-          background-color: ${colors.background};
-          color: ${colors.textPrimary};
-          -webkit-font-smoothing: antialiased;
-        }
-      `,
+        body: {
+          WebkitFontSmoothing: 'antialiased',
+        },
+      }),
     },
 
     MuiTypography: {
@@ -162,6 +197,12 @@ export const theme = createTheme({
           mono: 'code',
           bodyStrong: 'strong',
         },
+      },
+      styleOverrides: {
+        // A label is quieter than the value it introduces, in either scheme.
+        metricLabel: ({ theme: t }) => ({
+          color: t.vars.palette.text.secondary,
+        }),
       },
     },
 

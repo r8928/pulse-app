@@ -25,6 +25,7 @@ import Typography from '@mui/material/Typography';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { ColorSchemeToggle } from './ColorSchemeToggle.jsx';
 import { visibleNavigation } from './navigation.js';
 
 const DRAWER_WIDTH = 232;
@@ -128,6 +129,7 @@ export function AppShell({ user, signOutAction, children }) {
           </Stack>
 
           <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+            <ColorSchemeToggle />
             <Stack sx={{ textAlign: 'right' }}>
               <Typography variant='bodyStrong'>{user.name}</Typography>
               {/* NFR-2: the role is spelled out rather than abbreviated. */}

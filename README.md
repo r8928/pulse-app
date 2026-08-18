@@ -64,6 +64,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Employment-period reduction approval (`FR-2.11`, `P-05`) | Done — the soft delete never waits for it; only the stranded records do |
 | Report builder, annual summary, export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
+| Light and dark colour schemes, chosen from the top bar | Done — CitrusBits palette, both schemes AA-verified |
 
 Every collection exists already, so none of the above needs a migration.
 
@@ -123,6 +124,17 @@ answered. It imports people, not attendance.
 **`recalculateDays` returns zero until Phase 5.** Its callers are real; the
 body is not. `database.js` must never import it — the engine imports
 `database.js`.
+
+**Two theme callbacks, two signatures.** `MuiCssBaseline.styleOverrides` is
+handed the theme itself; a component `variants` entry is handed `{ theme }`.
+Swapping them yields `undefined.vars`, passes every unit test, and fails only at
+prerender.
+
+**A new colour token goes in both schemes or neither.** `lightColors` and
+`darkColors` in `app/theme/colors.js` are asserted to hold identical keys. For
+anything scheme-dependent use `theme.applyStyles('dark', …)` or `theme.vars` —
+never spell out the `.dark` selector, or the scheme has two places it is
+configured.
 
 **Dates go through `date-fns`.** No `new Date()` for parsing or arithmetic.
 
