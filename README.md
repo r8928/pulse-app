@@ -49,6 +49,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Team configuration: shifts, calendar, weekly off, policy, ladders (`S-17`) | Done |
 | User lifecycle: role, team, shift, tracked, login, tenures (`S-07`) | Done |
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
+| Sheet format guide on arriving at `S-08`, before a file is chosen | Done |
 | Audit records on every mutation | Done |
 | Audit log: paged, filterable, read only (`S-22`) | Done |
 | Navigation in three bands: drawer, icon rail, full drawer | Done |

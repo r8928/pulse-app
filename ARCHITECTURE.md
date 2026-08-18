@@ -1911,6 +1911,13 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
   tenure and is recorded as leave.
 - Toggling tracked **deletes no attendance history**; turning it on starts
   producing day records from that point forward (`FR-2.10`).
+- **`S-08` matches column headings exactly.** `readSheetRows` keys each row on
+  its trimmed heading, so a sheet whose name column is headed anything but
+  `Employee Name` rejects every row at once for want of a name — while the
+  reader looks at a column full of names. `SheetFormatDialog` opens on arrival
+  to prevent that, and renders the two headings from
+  `EMPLOYEE_CODE_COLUMN`/`EMPLOYEE_NAME_COLUMN` so guidance and parser cannot
+  drift apart.
 
 ## 29 M-7 · Config and access control
 

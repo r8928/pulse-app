@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { UNASSIGNED } from '../constants/index.js';
 import { outstandingDetails, readyToCommit } from '../utils/rosterImport.js';
 import { PageHeader } from './PageHeader.jsx';
+import { SheetFormatDialog } from './SheetFormatDialog.jsx';
 
 const STEPS = ['Upload', 'Complete missing details', 'Commit'];
 
@@ -45,6 +46,12 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [committed, setCommitted] = useState(null);
+  /**
+   * Open on arrival. A wrong column heading rejects the whole sheet at once,
+   * and this screen is used once at go-live — so the cost of showing it
+   * unasked is a click, and the cost of hiding it behind one is a re-upload.
+   */
+  const [formatOpen, setFormatOpen] = useState(true);
 
   const upload = async (event) => {
     event.preventDefault();
@@ -159,6 +166,11 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
 
   return (
     <Stack spacing={3}>
+      <SheetFormatDialog
+        open={formatOpen}
+        onClose={() => setFormatOpen(false)}
+      />
+
       <PageHeader
         title='Roster import'
         description='One-time go-live migration from the old workbook’s Biometric ID sheet. It imports people, not attendance — historical attendance is deliberately not migrated. Nothing is guessed or defaulted, and the commit stays disabled until every outstanding field is filled.'
@@ -182,6 +194,11 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                 The sheet supplies an employee code and a name. The code is the
                 only thing used to match a person — a name never is.
               </Typography>
+              <Stack direction='row'>
+                <Button type='button' onClick={() => setFormatOpen(true)}>
+                  What the sheet must look like
+                </Button>
+              </Stack>
               <TextField
                 name='file'
                 type='file'

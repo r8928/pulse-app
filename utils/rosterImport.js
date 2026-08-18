@@ -11,8 +11,20 @@
  * and the commit stays blocked until each is filled (`DC-6`).
  */
 
-/** What the sheet itself supplies. Everything else is asked for afterwards. */
-const SHEET_COLUMNS = ['Employee Code', 'Employee Name'];
+/**
+ * What the sheet itself supplies, spelled exactly as the heading must read.
+ *
+ * `readSheetRows` keys each row on its trimmed heading, so a match is exact
+ * and a sheet heading its name column anything else rejects every row at once
+ * for want of a name. `S-08` shows these same two strings to the reader before
+ * they choose a file, from here rather than from a copy, so the guidance
+ * cannot drift from what is actually matched.
+ */
+export const EMPLOYEE_CODE_COLUMN = 'Employee Code';
+export const EMPLOYEE_NAME_COLUMN = 'Employee Name';
+
+/** Everything else is asked for afterwards. */
+const SHEET_COLUMNS = [EMPLOYEE_CODE_COLUMN, EMPLOYEE_NAME_COLUMN];
 
 /**
  * The fields the sheet does not carry. `S-08` step 2 lists every user against
@@ -47,8 +59,8 @@ export function validateRosterRows(rows, existingCodes) {
   rows.forEach((row, index) => {
     // The reader thinks in sheet rows, and row 1 is the header.
     const sheetRow = index + 2;
-    const employeeCode = text(row['Employee Code']);
-    const fullName = text(row['Employee Name']);
+    const employeeCode = text(row[EMPLOYEE_CODE_COLUMN]);
+    const fullName = text(row[EMPLOYEE_NAME_COLUMN]);
 
     if (!employeeCode) {
       rejected.push({
