@@ -17,7 +17,8 @@ import {
 } from '../database.js';
 
 /**
- * Seeds the configuration section 3.10 specifies, plus a demo roster.
+ * Seeds the configuration section 3.10 specifies, plus the administrators
+ * who set the rest of it up.
  *
  * Every number here is a seed, not a constant: FR-6.4 makes all of it editable
  * at runtime with no redeploy, and OFFICE_ADMIN changes any of it per team.
@@ -67,19 +68,6 @@ const CONSUMER_DOMAINS = new Set([
 ]);
 
 const usingConsumerDomain = CONSUMER_DOMAINS.has(workspaceDomain);
-
-/**
- * Demo users never get an address on the authorised domain.
- *
- * Deriving their emails from it looks tidy when that domain is a company one,
- * and is actively dangerous when it is not: seeding `it.demo@gmail.com` hands
- * the IT role to whoever happens to own that mailbox.
- *
- * `.invalid` is reserved by RFC 2606 and can never be registered, so no Google
- * account can ever match these. They exist to populate the roster, not to be
- * signed in as — which is why every one of them also has login disabled.
- */
-const DEMO_EMAIL_DOMAIN = 'pulse.invalid';
 
 /**
  * FR-1.3: OFFICE_ADMIN holds every permission the system defines at ALL, and
@@ -261,16 +249,15 @@ const teams = [
   },
 ];
 
-/**
- * FR-3.1 requires exactly one manager per team, and `spec.md` names one for
- * exactly one team: Marcus Adeyemi runs GC (BR-3's night support).
+/*
+ * None of those four teams gets a manager here.
  *
- * The other three are left **unset on purpose** (design record D-5). Inventing
- * three managers would dress a guess up as an org fact, which `DC-6` forbids,
- * and would hide the FR-3.13 missing-configuration path until Phase 6. S-17
- * flags each of them inline instead.
+ * FR-3.1 requires exactly one, and design record D-5 already left three unset
+ * because inventing one dresses a guess up as an org fact (DC-6). The fourth
+ * was held by a demo user who has since been purged, so all four are now unset
+ * for that same reason, each waiting on a real appointment through S-17 —
+ * which flags the FR-3.13 missing-configuration path inline until one is made.
  */
-const teamManagerEmployeeCodes = { GC: 'GC-001' };
 
 /**
  * FR-3.10 and DC-5: there is no company-wide default timezone. Every shift
@@ -368,9 +355,17 @@ const weeklyOffPatterns = teams.map((team) => ({
   daysOfWeek: team.key === 'SALES_MARKETING' ? [0, 6] : [6, 0],
 }));
 
-const demoUsers = [
+/**
+ * The real administrators, and nobody else.
+ *
+ * Everyone else on the roster arrives through S-08's import from the company
+ * workbook. Inventing colleagues to fill the screens was how this list started
+ * and it is not what it is for: a seeded person is indistinguishable from a
+ * real one on S-06, and DC-6 forbids dressing a guess up as an org fact.
+ */
+const seedUsers = [
   {
-    fullName: 'Office Administrator',
+    fullName: 'Ahmar Ali',
     employeeCode: 'ADM-001',
     workEmail: adminEmail,
     employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
@@ -381,77 +376,37 @@ const demoUsers = [
     dateOfJoining: '2024-01-01',
   },
   {
-    fullName: 'Ivy Tanaka',
-    employeeCode: 'IT-001',
-    workEmail: `it.demo@${DEMO_EMAIL_DOMAIN}`,
+    fullName: 'Rashid Hasan',
+    employeeCode: 'ADM-002',
+    workEmail: 'rashid@radiusxr.com',
     employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
-    role: ROLES.IT,
+    role: ROLES.OFFICE_ADMIN,
     teamKey: 'GENERAL',
     tracked: true,
-    // Demo users never sign in. Their address is unregistrable, so no Google
-    // account can match it, and this closes the path a second way.
-    loginEnabled: false,
-    dateOfJoining: '2024-03-11',
+    loginEnabled: true,
+    /**
+     * Not his real start date, which is not known yet — this is the date the
+     * record was created. FR-2.12 makes it editable on S-07 the moment it is,
+     * with no re-seed: the tenure is what carries employment history, and the
+     * two stored dates follow it.
+     */
+    dateOfJoining: '2026-08-18',
   },
-  {
-    fullName: 'Marcus Adeyemi',
-    employeeCode: 'GC-001',
-    workEmail: `gc.manager.demo@${DEMO_EMAIL_DOMAIN}`,
-    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
-    role: ROLES.MANAGER,
-    teamKey: 'GC',
-    tracked: true,
-    loginEnabled: false,
-    dateOfJoining: '2023-06-01',
-  },
-  {
-    fullName: 'Priya Raman',
-    employeeCode: 'SM-001',
-    workEmail: `sm.demo@${DEMO_EMAIL_DOMAIN}`,
-    employmentType: EMPLOYMENT_TYPE_SEEDS.PERMANENT,
-    role: ROLES.EMPLOYEE,
-    teamKey: 'SALES_MARKETING',
-    tracked: true,
-    loginEnabled: false,
-    dateOfJoining: '2025-02-17',
-  },
-  {
-    fullName: 'Tom Okafor',
-    employeeCode: 'PO-001',
-    workEmail: `po.demo@${DEMO_EMAIL_DOMAIN}`,
-    employmentType: EMPLOYMENT_TYPE_SEEDS.CONTRACT,
-    role: ROLES.EMPLOYEE,
-    teamKey: 'PRODUCT_OWNERS',
-    tracked: true,
-    loginEnabled: false,
-    dateOfJoining: '2025-09-01',
-  },
-  {
-    // FR-1.5 and FR-2.10: support staff hold no work email and never sign in,
-    // but are still tracked for attendance. Both flags exercised together.
-    fullName: 'Rosa Delgado',
-    employeeCode: 'SUP-001',
-    workEmail: null,
-    employmentType: EMPLOYMENT_TYPE_SEEDS.SUPPORT_STAFF,
-    role: ROLES.EMPLOYEE,
-    teamKey: 'GENERAL',
-    tracked: true,
-    loginEnabled: false,
-    dateOfJoining: '2022-04-04',
-  },
-  {
-    // FR-2.10: a record for administration only. No day records, no shift
-    // required, no exception, no deduction.
-    fullName: 'Consultant Placeholder',
-    employeeCode: 'INT-001',
-    workEmail: null,
-    employmentType: EMPLOYMENT_TYPE_SEEDS.INTERN,
-    role: ROLES.EMPLOYEE,
-    teamKey: 'GENERAL',
-    tracked: false,
-    loginEnabled: false,
-    dateOfJoining: '2026-06-01',
-  },
+];
+
+/**
+ * FR-1.5's domain gate, derived rather than configured: every domain that a
+ * user who may actually sign in holds an address on.
+ *
+ * Authorising only `SEED_ADMIN_EMAIL`'s domain would seed an account that the
+ * gate then refuses — a login that fails for a reason no screen explains.
+ */
+const authorisedDomains = [
+  ...new Set(
+    seedUsers
+      .filter((user) => user.loginEnabled && user.workEmail)
+      .map((user) => user.workEmail.split('@').at(-1).toLowerCase()),
+  ),
 ];
 
 async function seed() {
@@ -479,10 +434,10 @@ async function seed() {
   console.warn('Ensuring indexes...');
   await ensureIndexes();
 
-  console.warn(`Authorising sign-in domain: ${workspaceDomain}`);
+  console.warn(`Authorising sign-in domains: ${authorisedDomains.join(', ')}`);
   await upsertSeed(
     COLLECTIONS.AUTHORISED_DOMAINS,
-    [{ domain: workspaceDomain }],
+    authorisedDomains.map((domain) => ({ domain })),
     ['domain'],
   );
 
@@ -558,11 +513,10 @@ async function seed() {
     ['teamId'],
   );
 
-  console.warn('Seeding demo users...');
-  const usersByCode = {};
-  for (const { teamKey, ...user } of demoUsers) {
+  console.warn('Seeding users...');
+  for (const { teamKey, ...user } of seedUsers) {
     // FR-3.4: a user with no shift of their own takes their team's default.
-    const created = await upsertSeedUser({
+    await upsertSeedUser({
       ...user,
       teamId: teamIdByKey[teamKey],
       shiftId:
@@ -570,27 +524,13 @@ async function seed() {
           teams.find((team) => team.key === teamKey).defaultShiftKey
         ],
     });
-    usersByCode[user.employeeCode] = String(created._id);
   }
-
-  // FR-3.1, and only where spec.md actually names one (design record D-5).
-  await upsertSeed(
-    COLLECTIONS.TEAMS,
-    Object.entries(teamManagerEmployeeCodes).map(([teamKey, code]) => ({
-      key: teamKey,
-      managerId: usersByCode[code],
-    })),
-    ['key'],
-  );
 
   const grants = await getPermissionGrants();
   console.warn(
-    `\nDone. ${grants.length} permission grants, ${teams.length} teams, ${shifts.length} shifts, ${demoUsers.length} users.`,
+    `\nDone. ${grants.length} permission grants, ${teams.length} teams, ${shifts.length} shifts, ${seedUsers.length} users.`,
   );
   console.warn(`Sign in as ${adminEmail} to reach every screen.`);
-  console.warn(
-    `Demo users are on @${DEMO_EMAIL_DOMAIN} with login disabled, so none of them can ever sign in.`,
-  );
 
   if (usingConsumerDomain) {
     console.warn(

@@ -15,7 +15,8 @@
     "lint:fix": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "node --env-file=.env.local scripts/seed.js"
+    "seed": "node --env-file=.env.local scripts/seed.js",
+    "purge-users": "node --env-file=.env.local scripts/purge-users.js"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",

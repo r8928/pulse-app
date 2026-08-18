@@ -84,11 +84,12 @@ one-line removal.
 ### D-5 · A team's manager may be unset, and says so
 
 `FR-3.1` requires exactly one manager per team, but `spec.md` names a manager
-for only one seeded team (Marcus Adeyemi, GC). The seed therefore sets GC's
-manager and **leaves the other three unset**, which `policyCompleteness` flags
-inline on `S-17` and `S-05` queues in Phase 6.
+for only one seeded team (GC). The seed originally set GC's manager and left
+the other three unset; the demo user who held GC has since been purged, so the
+seed now **leaves all four unset**, which `policyCompleteness` flags inline on
+`S-17` and `S-05` queues in Phase 6.
 
-Inventing three managers would dress a guess up as an org fact, which `DC-6`
+Inventing a manager would dress a guess up as an org fact, which `DC-6`
 and `I-5` forbid — and it would hide the missing-configuration path until
 Phase 6. A fresh seed showing three incompletely configured teams is the
 honest state, not a defect.

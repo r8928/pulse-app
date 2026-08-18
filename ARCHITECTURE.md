@@ -148,7 +148,7 @@ components/         AppShell · PageHeader · EmptyState · ScreenStub
 hooks/              useUserMutations.js
 app/theme/          colors.js · theme.js · fonts.js
 app/(app)/          22 routed, permission-gated screens
-scripts/seed.js     §3.10 configuration and demo roster
+scripts/seed.js     §3.10 configuration and the administrator accounts
 ```
 
 **Built and working:** Google sign-in with five distinct rejections · the

@@ -42,9 +42,10 @@ import { missingConfiguration } from './utils/policyCompleteness.js';
  *                     cancelled only by appending a reversing entry
  *   audit records     append only
  *
- * There is deliberately no function here that hard-deletes a user, an
- * attendance record, or a leave record. No endpoint can, because no code path
- * exists (FR-2.2, MVP criterion 14).
+ * No endpoint hard-deletes a user, an attendance record, or a leave record,
+ * because no code path reachable from one exists (FR-2.2, MVP criterion 14).
+ * The single exception is `purgeSeedUsers`, which is seed maintenance: it is
+ * imported by `scripts/` alone, never by a route, page or component.
  */
 
 // --- Connection ------------------------------------------------------------
@@ -5808,6 +5809,121 @@ export async function upsertSeedUser(user, companyId = DEFAULT_COMPANY_ID) {
   );
 
   return result;
+}
+
+/**
+ * Every collection whose documents belong to one user and mean nothing without
+ * them. `auditRecords` is deliberately absent — see `purgeSeedUsers`.
+ */
+const USER_OWNED_COLLECTIONS = Object.freeze([
+  COLLECTIONS.TENURES,
+  COLLECTIONS.TEAM_ASSIGNMENTS,
+  COLLECTIONS.SHIFT_ASSIGNMENTS,
+  COLLECTIONS.PUNCHES,
+  COLLECTIONS.DAY_RECORDS,
+  COLLECTIONS.LEAVE_RECORDS,
+  COLLECTIONS.PTO_AWARDS,
+  COLLECTIONS.CTO_APPLICATIONS,
+  COLLECTIONS.LEDGER_ENTRIES,
+  COLLECTIONS.APPROVALS,
+]);
+
+/**
+ * Removes seeded users outright, by employee code.
+ *
+ * This is the one function in the file that hard-deletes a person, and it is
+ * seed maintenance rather than an application capability: `FR-2.2` and MVP
+ * criterion 14 say a *user* is only ever soft deleted, and that still holds —
+ * no route, page or component imports this, and `softDeleteUser` remains the
+ * only way a person leaves the roster in the product.
+ *
+ * It exists because seeding only upserts. A demo row invented to exercise a
+ * screen has no other way out of the database, and soft deleting one leaves it
+ * on S-06 forever wearing a departure date it never had.
+ *
+ * Named codes only, and an unknown one is refused before anything is deleted:
+ * a destructive one-off must fail loudly on a typo rather than half-succeed.
+ * Deriving the list by subtracting the current seed would delete every real
+ * person imported through S-08, which is why it is never done that way.
+ *
+ * `ledgerEntries` go with them, which no application path may ever do
+ * (`FR-6.8`, `DC-3`: a ledger entry is cancelled by a reversing entry, never
+ * removed). Reversing entries for a person who no longer exists would leave
+ * the ledger describing a balance nobody holds.
+ *
+ * `auditRecords` stay. `FR-9.3` is append only without exception, so the
+ * record of what was done to these rows outlives them.
+ */
+export async function purgeSeedUsers(
+  employeeCodes,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const codes = [
+    ...new Set((employeeCodes ?? []).map((code) => String(code).trim())),
+  ].filter(Boolean);
+
+  if (codes.length === 0) {
+    throw new ValidationError('At least one employee code is required');
+  }
+
+  const db = await getDb();
+
+  const users = await db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, employeeCode: { $in: codes } })
+    .project({ employeeCode: 1 })
+    .toArray();
+
+  const found = new Set(users.map((user) => user.employeeCode));
+  const missing = codes.filter((code) => !found.has(code));
+
+  if (missing.length > 0) {
+    throw new ValidationError(
+      `No user holds employee code ${missing.join(', ')}`,
+    );
+  }
+
+  const userIds = users.map((user) => String(user._id));
+  let removedRecords = 0;
+
+  for (const name of USER_OWNED_COLLECTIONS) {
+    const { deletedCount } = await db
+      .collection(name)
+      .deleteMany({ companyId, userId: { $in: userIds } });
+
+    removedRecords += deletedCount;
+  }
+
+  /**
+   * An import exception is keyed on the employee code from the spreadsheet
+   * rather than on a user id, so it is matched the same way. Leaving one
+   * behind queues an S-05 row against a person the system no longer knows.
+   */
+  const { deletedCount: removedExceptions } = await db
+    .collection(COLLECTIONS.IMPORT_EXCEPTIONS)
+    .deleteMany({ companyId, employeeCode: { $in: codes } });
+
+  /**
+   * FR-3.1 wants exactly one manager per team, and a dangling id is worse than
+   * none: S-17 flags an unset manager, and silently resolves a missing one to
+   * nothing at all.
+   */
+  const { modifiedCount: teamsCleared } = await db
+    .collection(COLLECTIONS.TEAMS)
+    .updateMany(
+      { companyId, managerId: { $in: userIds } },
+      { $set: { managerId: null, updatedAt: new Date() } },
+    );
+
+  const { deletedCount: removedUsers } = await db
+    .collection(COLLECTIONS.USERS)
+    .deleteMany({ companyId, _id: { $in: users.map((user) => user._id) } });
+
+  return {
+    removedUsers,
+    removedRecords: removedRecords + removedExceptions,
+    teamsCleared,
+  };
 }
 
 // --- Audit reads -----------------------------------------------------------

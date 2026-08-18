@@ -29,7 +29,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | `npm run lint` | Biome. **Must exit 0 before any commit.** |
 | `npm run lint:fix` | Biome with `--write` |
 | `npm test` | Vitest, once |
-| `npm run seed` | Loads §3.10 configuration and a demo roster. Idempotent. |
+| `npm run seed` | Loads §3.10 configuration and the administrator accounts. Idempotent. |
+| `npm run purge-users -- <codes>` | Removes seeded users outright. Destructive; names each code. |
 
 ---
 
@@ -164,7 +165,7 @@ components/       shared UI; navigation.js is data-only
 hooks/            client-side business logic
 app/theme/        colors.js · theme.js · fonts.js
 app/(app)/        the authenticated shell and its screens
-scripts/seed.js   §3.10 configuration and demo roster
+scripts/seed.js   §3.10 configuration and the administrator accounts
 ```
 
 ---

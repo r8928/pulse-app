@@ -184,9 +184,16 @@ export function AppShell({ user, signOutAction, children }) {
                 textDecoration: 'none',
               }}
             >
-              {/* Decorative: the wordmark beside it already names the product. */}
+              {/*
+                Decorative: the wordmark beside it already names the product.
+
+                The SVG carries no background of its own, so the bar's colour
+                shows through the mark and through the ring at its centre in
+                either scheme. A raster with a baked-in white ground sat in a
+                white box here in dark mode.
+              */}
               <Image
-                src='/citrusbits-logo.jpg'
+                src='/citrusbits-logo.svg'
                 alt=''
                 width={28}
                 height={28}
