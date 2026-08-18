@@ -20,7 +20,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { UNASSIGNED } from '../constants/index.js';
+import { ROLES, UNASSIGNED } from '../constants/index.js';
 import { outstandingDetails, readyToCommit } from '../utils/rosterImport.js';
 import { PageHeader } from './PageHeader.jsx';
 import { SheetFormatDialog } from './SheetFormatDialog.jsx';
@@ -80,15 +80,23 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
         return;
       }
 
+      /**
+       * Whatever the sheet stated stands; whatever it left blank falls back to
+       * the same default the create-user form offers, and is editable here.
+       *
+       * Team and shift are never on the sheet — `FR-2.1` makes each its own
+       * operation — so both start unchosen and block the commit until answered.
+       */
       setRows(
         payload.accepted.map((row) => ({
           ...row,
-          workEmail: '',
+          workEmail: row.workEmail ?? '',
+          employmentType: row.employmentType ?? '',
+          dateOfJoining: row.dateOfJoining ?? '',
+          role: row.role ?? ROLES.EMPLOYEE,
+          tracked: row.tracked ?? true,
+          loginEnabled: row.loginEnabled ?? false,
           teamId: UNASSIGNED,
-          employmentType: '',
-          tracked: true,
-          loginEnabled: false,
-          dateOfJoining: '',
           shiftId: UNASSIGNED,
         })),
       );
@@ -138,7 +146,7 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
             employmentType: row.employmentType,
             tracked: row.tracked,
             loginEnabled: row.loginEnabled,
-            role: 'EMPLOYEE',
+            role: row.role,
             shiftId: row.shiftId,
             dateOfJoining: row.dateOfJoining,
           })),
@@ -191,12 +199,21 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
           <Paper variant='outlined'>
             <Stack spacing={2} sx={{ p: 3 }}>
               <Typography variant='body2' color='text.secondary'>
-                The sheet supplies an employee code and a name. The code is the
-                only thing used to match a person — a name never is.
+                The sheet supplies an employee code and a name, and may supply
+                the work email, employment type, role, date of joining and the
+                two switches as well. The code is the only thing used to match a
+                person — a name never is.
               </Typography>
-              <Stack direction='row'>
+              <Stack direction='row' spacing={1}>
                 <Button type='button' onClick={() => setFormatOpen(true)}>
                   What the sheet must look like
+                </Button>
+                <Button
+                  component='a'
+                  href='/api/users/import/template'
+                  download
+                >
+                  Download blank template
                 </Button>
               </Stack>
               <TextField
@@ -257,6 +274,7 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                   <TableCell>Work email</TableCell>
                   <TableCell>Team</TableCell>
                   <TableCell>Employment type</TableCell>
+                  <TableCell>Role</TableCell>
                   <TableCell>Tracked</TableCell>
                   <TableCell>Login</TableCell>
                   <TableCell>Date of joining</TableCell>
@@ -321,11 +339,28 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                         </TextField>
                       </TableCell>
                       <TableCell>
+                        <TextField
+                          select
+                          value={row.role}
+                          onChange={set(index, 'role')}
+                          aria-label={`Role for ${row.fullName}`}
+                          sx={{ minWidth: 140 }}
+                        >
+                          {Object.values(ROLES).map((role) => (
+                            <MenuItem key={role} value={role}>
+                              {role}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      </TableCell>
+                      <TableCell>
                         <Switch
                           checked={row.tracked}
                           onChange={set(index, 'tracked')}
-                          inputProps={{
-                            'aria-label': `${row.fullName} is tracked`,
+                          slotProps={{
+                            input: {
+                              'aria-label': `${row.fullName} is tracked`,
+                            },
                           }}
                         />
                       </TableCell>
@@ -333,8 +368,10 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                         <Switch
                           checked={row.loginEnabled}
                           onChange={set(index, 'loginEnabled')}
-                          inputProps={{
-                            'aria-label': `${row.fullName} may sign in`,
+                          slotProps={{
+                            input: {
+                              'aria-label': `${row.fullName} may sign in`,
+                            },
                           }}
                         />
                       </TableCell>

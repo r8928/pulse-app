@@ -9,9 +9,13 @@ import { PERMISSIONS } from '../../../../constants/index.js';
 import {
   commitRosterImport,
   getAllEmployeeCodes,
+  listEmploymentTypes,
 } from '../../../../database.js';
 import { errorResponse } from '../../../../utils/apiResponse.js';
-import { validateRosterRows } from '../../../../utils/rosterImport.js';
+import {
+  SHEET_NAME,
+  validateRosterRows,
+} from '../../../../utils/rosterImport.js';
 import { readSheetRows } from '../../../../utils/sheet.js';
 
 /**
@@ -57,7 +61,7 @@ export async function POST(request) {
 
     let parsed;
     try {
-      parsed = await readSheetRows(file, { sheetName: 'Biometric ID' });
+      parsed = await readSheetRows(file, { sheetName: SHEET_NAME });
     } catch (caught) {
       return NextResponse.json(
         {
@@ -67,9 +71,21 @@ export async function POST(request) {
       );
     }
 
-    const codes = new Set(await getAllEmployeeCodes());
+    /**
+     * The configured types are read here rather than trusted from the client,
+     * so a sheet naming a type is checked against one the company actually
+     * has (`FR-3.2`) instead of inventing it on import.
+     */
+    const [codes, employmentTypes] = await Promise.all([
+      getAllEmployeeCodes().then((all) => new Set(all)),
+      listEmploymentTypes().then((result) =>
+        result.items.map((type) => type.name),
+      ),
+    ]);
 
-    return NextResponse.json(validateRosterRows(parsed, codes));
+    return NextResponse.json(
+      validateRosterRows(parsed, codes, { employmentTypes }),
+    );
   } catch (error) {
     return errorResponse(error);
   }

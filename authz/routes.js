@@ -60,6 +60,10 @@ const ROUTE_RULES = [
   // Above the dynamic pattern, which would otherwise swallow it and hand the
   // go-live migration to anyone holding user.read.
   { pattern: /^\/api\/users\/import$/, permission: PERMISSIONS.USER_IMPORT },
+  {
+    pattern: /^\/api\/users\/import\/template$/,
+    permission: PERMISSIONS.USER_IMPORT,
+  },
   { pattern: /^\/api\/users(\/[^/]+)?$/, permission: PERMISSIONS.USER_READ },
   {
     pattern:

@@ -62,6 +62,15 @@ describe('requiredPermissionFor', () => {
     );
   });
 
+  it('maps the blank roster template, which is otherwise served as a 404', () => {
+    // An unmapped path is not public: `proxy.js` answers 404 for it. A route
+    // that exists and is unreachable fails only in the browser, never in a
+    // handler test, so the mapping is asserted here.
+    expect(requiredPermissionFor('/api/users/import/template')).toBe(
+      PERMISSIONS.USER_IMPORT,
+    );
+  });
+
   it('gates the attendance overview on attendance read', () => {
     expect(requiredPermissionFor('/attendance')).toBe(
       PERMISSIONS.ATTENDANCE_READ,

@@ -1915,9 +1915,25 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
   its trimmed heading, so a sheet whose name column is headed anything but
   `Employee Name` rejects every row at once for want of a name — while the
   reader looks at a column full of names. `SheetFormatDialog` opens on arrival
-  to prevent that, and renders the two headings from
-  `EMPLOYEE_CODE_COLUMN`/`EMPLOYEE_NAME_COLUMN` so guidance and parser cannot
-  drift apart.
+  to prevent that, and `GET /api/users/import/template` hands out a blank sheet
+  with the headings already right.
+- **`SHEET_COLUMNS` drives the parser, the guide and the template.** Adding a
+  column in `utils/rosterImport.js` adds it to all three; a second copy of the
+  list anywhere is how a template starts lying about what imports.
+- **A blank cell and an unreadable one are different answers.** Blank leaves
+  the field outstanding for step 2 to ask about; filled-but-unreadable rejects
+  the row and names the column. Neither is ever replaced by a default — a
+  mistyped `Role` silently becoming `EMPLOYEE` is how somebody ends up with the
+  wrong access (`DC-6`).
+- **A written date is only accepted as `YYYY-MM-DD`.** `03/04/2024` is two
+  different days either side of the Atlantic. A real Excel date cell is read in
+  UTC, because reading it locally moves a joining date by a day depending on
+  where the browser is.
+- **Team and shift stay off the sheet.** `FR-2.1` makes each its own operation
+  with its own effective-dated history, and neither is on the create-user form.
+- **A new API path needs a rule in `authz/routes.js`.** `requiredPermissionFor`
+  returns `undefined` for an unmapped path and `proxy.js` answers 404, so a
+  handler can pass every test it has and still be unreachable in the browser.
 
 ## 29 M-7 · Config and access control
 

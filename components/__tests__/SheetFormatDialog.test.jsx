@@ -3,10 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { theme } from '../../app/theme/theme.js';
-import {
-  EMPLOYEE_CODE_COLUMN,
-  EMPLOYEE_NAME_COLUMN,
-} from '../../utils/rosterImport.js';
+import { SHEET_COLUMNS } from '../../utils/rosterImport.js';
 import { SheetFormatDialog } from '../SheetFormatDialog.jsx';
 
 /**
@@ -31,11 +28,21 @@ const renderDialog = (props = {}) => {
 };
 
 describe('SheetFormatDialog', () => {
-  it('spells out both headings the sheet must carry', () => {
+  it('spells out every heading the sheet may carry', () => {
     renderDialog();
 
-    expect(screen.getByText(EMPLOYEE_CODE_COLUMN)).toBeInTheDocument();
-    expect(screen.getByText(EMPLOYEE_NAME_COLUMN)).toBeInTheDocument();
+    for (const column of SHEET_COLUMNS) {
+      // Twice over: once as a cell in the drawn sheet, once in the glossary
+      // that says what the column is for.
+      expect(screen.getAllByText(column.name).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('says which columns a sheet cannot be without', () => {
+    renderDialog();
+
+    const required = SHEET_COLUMNS.filter((column) => column.required);
+    expect(screen.getAllByText(/— required/)).toHaveLength(required.length);
   });
 
   it('shows example rows, so the reader sees what a filled sheet looks like', () => {
@@ -43,6 +50,14 @@ describe('SheetFormatDialog', () => {
 
     expect(screen.getByText('CB-1042')).toBeInTheDocument();
     expect(screen.getByText('Sana Iqbal')).toBeInTheDocument();
+  });
+
+  it('offers the blank template, since a right heading beats a typed one', () => {
+    renderDialog();
+
+    expect(
+      screen.getByRole('link', { name: /download blank template/i }),
+    ).toHaveAttribute('href', '/api/users/import/template');
   });
 
   it('closes on the close button', async () => {
