@@ -14,8 +14,15 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { DATE_FORMATS } from '../../utils/attendanceImport.js';
+import {
+  ATTENDANCE_EXAMPLE_ROWS,
+  ATTENDANCE_SHEET_COLUMNS,
+  ATTENDANCE_SHEET_NAME,
+  ATTENDANCE_SHEET_NOTES,
+  DATE_FORMATS,
+} from '../../utils/attendanceImport.js';
 import { plural } from '../../utils/plural.js';
+import { SheetFormatDialog } from '../SheetFormatDialog.jsx';
 
 /**
  * S-11. The biometric export, loaded in bulk.
@@ -27,6 +34,10 @@ import { plural } from '../../utils/plural.js';
  * FR-4.4: the preview shows accepted rows against rejected ones with a stated
  * reason for each, and nothing is written until the commit. A rejected file is
  * corrected and re-uploaded without leaving the page (NFR-1).
+ *
+ * The format guide opens on arrival, as it does on `S-08` and for the same
+ * reason: a heading spelled differently rejects every row at once, and that is
+ * the one mistake the preview cannot help anybody diagnose after the fact.
  */
 export function AttendanceImport() {
   const router = useRouter();
@@ -37,6 +48,7 @@ export function AttendanceImport() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(true);
 
   const send = async (action) => {
     setPending(true);
@@ -100,6 +112,16 @@ export function AttendanceImport() {
 
   return (
     <Stack spacing={3}>
+      <SheetFormatDialog
+        open={formatOpen}
+        onClose={() => setFormatOpen(false)}
+        sheetName={ATTENDANCE_SHEET_NAME}
+        columns={ATTENDANCE_SHEET_COLUMNS}
+        exampleRows={ATTENDANCE_EXAMPLE_ROWS}
+        notes={ATTENDANCE_SHEET_NOTES}
+        templateHref='/api/attendance/import/template'
+      />
+
       {error ? <Alert severity='error'>{error}</Alert> : null}
 
       {result ? (
@@ -114,9 +136,26 @@ export function AttendanceImport() {
           <Stack spacing={1}>
             <Typography variant='h6'>1 · Choose the export</Typography>
             <Typography variant='body2' color='text.secondary'>
-              The sheet the terminal produces: Sr No., Employee Code, Employee
-              Name, Type, Date, Time.
+              The sheet the terminal produces:{' '}
+              {ATTENDANCE_SHEET_COLUMNS.map((column) => column.name).join(', ')}
+              . One row is one punch, so a worked day is two rows.
             </Typography>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={1}
+              sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+            >
+              <Button type='button' onClick={() => setFormatOpen(true)}>
+                What the sheet must look like
+              </Button>
+              <Button
+                component='a'
+                href='/api/attendance/import/template'
+                download
+              >
+                Download blank template
+              </Button>
+            </Stack>
             <TextField
               type='file'
               label='Choose a file'
@@ -196,36 +235,44 @@ export function AttendanceImport() {
                   never used to match a person; only the employee code is.
                 </Typography>
 
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Sheet row</TableCell>
-                      <TableCell>Employee code</TableCell>
-                      <TableCell>Name in the sheet</TableCell>
-                      <TableCell>Reason</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {preview.rejected.map((row) => (
-                      <TableRow key={`${row.sheetRow}-${row.employeeCode}`}>
-                        <TableCell>
-                          <Typography variant='mono'>{row.sheetRow}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant='mono'>
-                            {row.employeeCode || '—'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>{row.fullName || '—'}</TableCell>
-                        <TableCell>{row.reason}</TableCell>
+                <Paper variant='outlined' sx={{ overflowX: 'auto' }}>
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Sheet row</TableCell>
+                        <TableCell>Employee code</TableCell>
+                        <TableCell>Name in the sheet</TableCell>
+                        <TableCell sx={{ minWidth: 280 }}>Reason</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {preview.rejected.map((row) => (
+                        <TableRow key={`${row.sheetRow}-${row.employeeCode}`}>
+                          <TableCell>
+                            <Typography variant='mono'>
+                              {row.sheetRow}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant='mono'>
+                              {row.employeeCode || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{row.fullName || '—'}</TableCell>
+                          <TableCell>{row.reason}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Paper>
               </Stack>
             ) : null}
 
-            <Stack direction='row' spacing={2} sx={{ alignItems: 'center' }}>
+            <Stack
+              direction={{ xs: 'column', sm: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+            >
               <Button
                 type='button'
                 variant='contained'

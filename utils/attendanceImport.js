@@ -33,6 +33,102 @@ export const DATE_FORMATS = Object.freeze({
   ISO: { value: 'ISO', label: 'YYYY-MM-DD — ISO', pattern: 'yyyy-MM-dd' },
 });
 
+/**
+ * The sheet the template hands out, and the one the upload looks for first.
+ *
+ * A terminal export rarely names its sheet, so `readSheetRows` falls back to
+ * the first worksheet in the book. Naming one here only makes the template
+ * self-describing; it never makes an existing export unreadable.
+ */
+export const ATTENDANCE_SHEET_NAME = 'Punches';
+
+/**
+ * Spelled exactly as each heading must read.
+ *
+ * `readSheetRows` keys each row on its trimmed heading, so a match is exact: a
+ * sheet heading its code column anything else rejects every row at once for
+ * want of a code. The parser below, `S-11`'s format guide and the blank
+ * template are all built from these, so none of the three can drift.
+ */
+export const EMPLOYEE_CODE_COLUMN = 'Employee Code';
+export const EMPLOYEE_NAME_COLUMN = 'Employee Name';
+export const TYPE_COLUMN = 'Type';
+export const DATE_COLUMN = 'Date';
+export const TIME_COLUMN = 'Time';
+
+/**
+ * The sheet's shape, in the order the columns appear.
+ *
+ * `Sr No.` is carried deliberately even though nothing reads it: it is the
+ * first column of the export the terminal actually produces, and a template
+ * that omitted it would have people deleting a column before they could use
+ * theirs.
+ */
+export const ATTENDANCE_SHEET_COLUMNS = Object.freeze([
+  {
+    name: 'Sr No.',
+    required: false,
+    example: '1',
+    note: 'Whatever the terminal numbered the row. Read by nobody, kept so the export can be uploaded exactly as it came.',
+  },
+  {
+    name: EMPLOYEE_CODE_COLUMN,
+    required: true,
+    example: 'CB-1042',
+    note: 'The code the biometric machine reports. The only thing used to match a person, and it must already belong to a tracked user.',
+  },
+  {
+    name: EMPLOYEE_NAME_COLUMN,
+    required: false,
+    example: 'Sana Iqbal',
+    note: 'Shown beside a rejected row so you can find it in the sheet. Never compared against anything, and never allowed to change a stored name.',
+  },
+  {
+    name: TYPE_COLUMN,
+    required: true,
+    example: 'Check In',
+    note: 'The direction of the punch. Check In, Check Out, In, Out, CheckIn and CHECK_OUT all read; anything else rejects the row.',
+  },
+  {
+    name: DATE_COLUMN,
+    required: true,
+    example: '03/04/2026',
+    note: 'A real date cell, or text in the one format you confirm at step 2. Every row in the sheet must use that same format.',
+  },
+  {
+    name: TIME_COLUMN,
+    required: true,
+    example: '09:12',
+    note: 'A 24-hour clock time: HH:MM or HH:MM:SS. Read in the punching user’s own timezone.',
+  },
+]);
+
+/**
+ * Two example punches, invented — a check in and the check out that closes it,
+ * so the pair shows what one worked day looks like in the sheet.
+ */
+export const ATTENDANCE_EXAMPLE_ROWS = Object.freeze([
+  ATTENDANCE_SHEET_COLUMNS.map((column) => column.example),
+  Object.freeze([
+    '2',
+    'CB-1042',
+    'Sana Iqbal',
+    'Check Out',
+    '03/04/2026',
+    '18:04',
+  ]),
+]);
+
+/** What the guide says about the sheet as a whole, beyond the columns. */
+export const ATTENDANCE_SHEET_NOTES = Object.freeze([
+  'Every heading must match character for character. Anything else in that cell leaves the column unread, and every row is rejected for the field it was carrying.',
+  'One row is one punch, not one day. A person who came in and left again has two rows, and each is matched to a check in or a check out by its Type.',
+  'The whole sheet is read under a single date format, confirmed by you at step 2. 03/04/2026 is two different days and Pulse will not pick one.',
+  'A code that matches nobody, an untracked person, or a date outside their employment period rejects that row with the reason stated. The rest of the sheet still imports.',
+  'Nothing is written until you have seen the preview. Then every accepted row is written or none is.',
+  'Any further column is ignored, not rejected. Leave the rest of the terminal’s export in place.',
+]);
+
 const PATTERNS = Object.fromEntries(
   Object.values(DATE_FORMATS).map((entry) => [entry.value, entry.pattern]),
 );
@@ -106,8 +202,8 @@ export function validateAttendanceRows(rows, { usersByCode, dateFormat }) {
   rows.forEach((row, index) => {
     // The reader thinks in sheet rows, and row 1 is the header.
     const sheetRow = index + 2;
-    const employeeCode = text(row['Employee Code']);
-    const fullName = text(row['Employee Name']);
+    const employeeCode = text(row[EMPLOYEE_CODE_COLUMN]);
+    const fullName = text(row[EMPLOYEE_NAME_COLUMN]);
 
     const reject = (reason) =>
       rejected.push({ sheetRow, employeeCode, fullName, reason });
@@ -135,28 +231,28 @@ export function validateAttendanceRows(rows, { usersByCode, dateFormat }) {
       return;
     }
 
-    const type = TYPES.get(text(row.Type).toUpperCase());
+    const type = TYPES.get(text(row[TYPE_COLUMN]).toUpperCase());
 
     if (!type) {
       reject(
-        `“${text(row.Type)}” is not a check in or check out, so there is nothing to record.`,
+        `“${text(row[TYPE_COLUMN])}” is not a check in or check out, so there is nothing to record.`,
       );
       return;
     }
 
-    const date = readDate(row.Date, dateFormat);
+    const date = readDate(row[DATE_COLUMN], dateFormat);
 
     if (!date) {
       reject(
-        `The date “${text(row.Date)}” could not be read as ${DATE_FORMATS[dateFormat]?.label ?? dateFormat}.`,
+        `The date “${text(row[DATE_COLUMN])}” could not be read as ${DATE_FORMATS[dateFormat]?.label ?? dateFormat}.`,
       );
       return;
     }
 
-    const time = readTime(row.Time);
+    const time = readTime(row[TIME_COLUMN]);
 
     if (!time) {
-      reject(`The time “${text(row.Time)}” could not be read.`);
+      reject(`The time “${text(row[TIME_COLUMN])}” could not be read.`);
       return;
     }
 

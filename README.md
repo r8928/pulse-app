@@ -51,6 +51,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
 | Sheet format guide on arriving at `S-08`, plus a blank template to download | Done |
 | `S-08` reads the `FR-2.6` fields from the sheet where it carries them | Done |
+| `S-08` step 2 is a table on tablet and up, one card per person below it | Done |
 | Audit records on every mutation | Done |
 | Audit log: paged, filterable, read only (`S-22`) | Done |
 | Navigation in three bands: drawer, icon rail, full drawer | Done |
@@ -67,6 +68,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Employment-period reduction approval (`FR-2.11`, `P-05`) | Done — the soft delete never waits for it; only the stranded records do |
 | Report builder, annual summary, export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
+| Sheet format guide on arriving at `S-11`, plus a blank punch template to download | Done |
 | Light and dark colour schemes, chosen from the top bar | Done — CitrusBits palette, both schemes AA-verified |
 | Tablet-first sizing, 44px touch targets, column priority on tables | Done |
 

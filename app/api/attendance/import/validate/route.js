@@ -9,7 +9,9 @@ import { PERMISSIONS } from '../../../../../constants/index.js';
 import { loadImportContext } from '../../../../../database.js';
 import { errorResponse } from '../../../../../utils/apiResponse.js';
 import {
+  ATTENDANCE_SHEET_NAME,
   DATE_FORMATS,
+  EMPLOYEE_CODE_COLUMN,
   validateAttendanceRows,
 } from '../../../../../utils/attendanceImport.js';
 import { readSheetRows } from '../../../../../utils/sheet.js';
@@ -51,13 +53,17 @@ export async function POST(request) {
       );
     }
 
-    const rows = await readSheetRows(file);
+    // The template names its sheet; a terminal export rarely does, and
+    // `readSheetRows` falls back to the first worksheet for exactly that case.
+    const rows = await readSheetRows(file, {
+      sheetName: ATTENDANCE_SHEET_NAME,
+    });
 
     // NFR-4: one bulk load of every code in the sheet, not one query per row.
     const codes = [
       ...new Set(
         rows
-          .map((row) => String(row['Employee Code'] ?? '').trim())
+          .map((row) => String(row[EMPLOYEE_CODE_COLUMN] ?? '').trim())
           .filter(Boolean),
       ),
     ];

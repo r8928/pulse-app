@@ -1,12 +1,21 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  render,
+  screen,
+  waitFor,
+  waitForElementToBeRemoved,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ATTENDANCE_SHEET_COLUMNS } from '../../../utils/attendanceImport.js';
 import { AttendanceImport } from '../AttendanceImport.jsx';
 
 /**
  * S-11. Upload, confirm the date format, preview accepted against rejected,
  * then commit atomically — in that order, because FR-4.11 requires the format
  * to be confirmed BEFORE validation runs.
+ *
+ * The format guide opens on arrival, so every test that is about the steps
+ * dismisses it first, exactly as a reader does.
  */
 
 vi.mock('next/navigation', () => ({
@@ -43,6 +52,15 @@ const chooseFile = async (user) => {
   await user.upload(screen.getByLabelText(/choose a file/i), aFile());
 };
 
+/** Renders the screen and puts the arrival guide away, as a reader would. */
+const renderImport = async (user) => {
+  render(<AttendanceImport />);
+
+  await user.click(screen.getByRole('button', { name: 'Ok, I understand' }));
+  // The dialog leaves on a transition, so its absence is waited for.
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
+};
+
 describe('AttendanceImport', () => {
   beforeEach(() => {
     global.fetch = vi
@@ -52,7 +70,7 @@ describe('AttendanceImport', () => {
 
   it('will not validate until a date format is confirmed (FR-4.11)', async () => {
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
 
@@ -64,15 +82,45 @@ describe('AttendanceImport', () => {
     expect(screen.getByRole('button', { name: /validate/i })).toBeEnabled();
   });
 
-  it('explains why the format has to be confirmed rather than inferred', () => {
-    render(<AttendanceImport />);
+  it('explains why the format has to be confirmed rather than inferred', async () => {
+    const user = userEvent.setup();
+    await renderImport(user);
 
     expect(screen.getByText(/03\/04\/2026/)).toBeInTheDocument();
   });
 
+  it('explains the sheet format on arrival, before a file is chosen', () => {
+    render(<AttendanceImport />);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    for (const column of ATTENDANCE_SHEET_COLUMNS) {
+      expect(screen.getAllByText(column.name).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('offers the guide again after it has been dismissed', async () => {
+    const user = userEvent.setup();
+    await renderImport(user);
+
+    await user.click(
+      screen.getByRole('button', { name: /what the sheet must look like/i }),
+    );
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('offers the blank template from the screen as well as the guide', async () => {
+    const user = userEvent.setup();
+    await renderImport(user);
+
+    expect(
+      screen.getByRole('link', { name: /download blank template/i }),
+    ).toHaveAttribute('href', '/api/attendance/import/template');
+  });
+
   it('shows accepted and rejected counts, and every rejection’s reason', async () => {
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
     await user.click(screen.getByLabelText(/date format/i));
@@ -89,7 +137,7 @@ describe('AttendanceImport', () => {
 
   it('shows the name for the reader while saying it is never used to match', async () => {
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
     await user.click(screen.getByLabelText(/date format/i));
@@ -108,7 +156,7 @@ describe('AttendanceImport', () => {
     });
 
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
     await user.click(screen.getByLabelText(/date format/i));
@@ -125,7 +173,7 @@ describe('AttendanceImport', () => {
 
   it('commits the accepted rows and reports what was written', async () => {
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
     await user.click(screen.getByLabelText(/date format/i));
@@ -157,7 +205,7 @@ describe('AttendanceImport', () => {
     });
 
     const user = userEvent.setup();
-    render(<AttendanceImport />);
+    await renderImport(user);
 
     await chooseFile(user);
     await user.click(screen.getByLabelText(/date format/i));

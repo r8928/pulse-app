@@ -17,46 +17,37 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import { SHEET_COLUMNS, SHEET_NAME } from '../utils/rosterImport.js';
 
 /**
- * S-08's format guide, shown before a file is chosen.
+ * The format guide an import screen shows before a file is chosen.
  *
- * A wrong heading is the one mistake the screen cannot help with after the
+ * A wrong heading is the one mistake an import cannot help with after the
  * fact: `readSheetRows` keys rows on the exact trimmed heading, so a sheet
- * naming its second column anything but `Employee Name` rejects every row at
- * once, and the reader is told over and over that a row has no name while
- * looking at a column full of names.
+ * naming a column anything else rejects every row at once, and the reader is
+ * told over and over that a row has no name while looking at a column full of
+ * names.
  *
- * Drawn as a sheet rather than described in prose, and rendered from
- * `SHEET_COLUMNS` rather than a screenshot: a picture cannot be copied from,
- * reads at one width, carries one colour scheme, and goes stale in silence the
- * day a column changes.
+ * Drawn as a sheet rather than described in prose, and rendered from the
+ * caller's column list rather than a screenshot: a picture cannot be copied
+ * from, reads at one width, carries one colour scheme, and goes stale in
+ * silence the day a column changes.
  *
- * Presentational. Open state belongs to the screen that offers it.
+ * Presentational, and shared by `S-08` and `S-11`. Every word specific to one
+ * sheet arrives as a prop, so the two guides cannot drift into two designs.
+ * Open state belongs to the screen that offers it.
+ *
+ * @param {object} props
+ * @param {boolean} props.open
+ * @param {() => void} props.onClose
+ * @param {string} props.sheetName the worksheet the upload looks for first
+ * @param {ReadonlyArray<{name: string, required: boolean, note: string}>} props.columns
+ * @param {ReadonlyArray<ReadonlyArray<string>>} props.exampleRows one per drawn row
+ * @param {ReadonlyArray<string>} props.notes what holds for the sheet as a whole
+ * @param {string} props.templateHref the blank workbook to download
  */
 
 /** Excel's own column letters: A, B, C … for as many columns as there are. */
 const columnLetter = (index) => String.fromCharCode(65 + index);
-
-/**
- * Two example people, invented. Nobody should read a real colleague into an
- * example, and the pair between them shows every column both filled and left
- * blank — a support-staff row genuinely has no email and never signs in.
- */
-const EXAMPLE_ROWS = [
-  SHEET_COLUMNS.map((column) => column.example),
-  [
-    'CB-1043',
-    'Daniyal Khan',
-    '',
-    'SUPPORT_STAFF',
-    'EMPLOYEE',
-    '2022-04-04',
-    'TRUE',
-    'FALSE',
-  ],
-];
 
 /** The spreadsheet's own gutter: what Excel puts down the left-hand side. */
 const gutter = {
@@ -68,7 +59,15 @@ const gutter = {
 /** Cells hold sheet content, so they read as cells rather than as prose. */
 const cell = { whiteSpace: 'nowrap' };
 
-export function SheetFormatDialog({ open, onClose }) {
+export function SheetFormatDialog({
+  open,
+  onClose,
+  sheetName,
+  columns,
+  exampleRows,
+  notes,
+  templateHref,
+}) {
   const handleSubmit = (event) => {
     event.preventDefault();
     onClose();
@@ -99,14 +98,14 @@ export function SheetFormatDialog({ open, onClose }) {
           <Stack spacing={3}>
             <DialogContentText>
               Headings in row 1, spelled exactly as below, on a sheet named “
-              {SHEET_NAME}” or the first sheet in the workbook. The rows
+              {sheetName}” or the first sheet in the workbook. The rows
               underneath are an example.
             </DialogContentText>
 
             <Stack direction='row'>
               <Button
                 component='a'
-                href='/api/users/import/template'
+                href={templateHref}
                 download
                 variant='outlined'
                 startIcon={<DownloadOutlined />}
@@ -120,7 +119,7 @@ export function SheetFormatDialog({ open, onClose }) {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={gutter} />
-                    {SHEET_COLUMNS.map((column, index) => (
+                    {columns.map((column, index) => (
                       <TableCell key={column.name} sx={gutter}>
                         {columnLetter(index)}
                       </TableCell>
@@ -130,7 +129,7 @@ export function SheetFormatDialog({ open, onClose }) {
                 <TableBody>
                   <TableRow>
                     <TableCell sx={gutter}>1</TableCell>
-                    {SHEET_COLUMNS.map((column) => (
+                    {columns.map((column) => (
                       <TableCell key={column.name} sx={cell}>
                         <Typography variant='bodyStrong'>
                           {column.name}
@@ -139,11 +138,11 @@ export function SheetFormatDialog({ open, onClose }) {
                     ))}
                   </TableRow>
 
-                  {EXAMPLE_ROWS.map((values, row) => (
-                    <TableRow key={values[0]}>
+                  {exampleRows.map((values, row) => (
+                    <TableRow key={values.join('|')}>
                       <TableCell sx={gutter}>{row + 2}</TableCell>
                       {values.map((value, index) => (
-                        <TableCell key={SHEET_COLUMNS[index].name} sx={cell}>
+                        <TableCell key={columns[index].name} sx={cell}>
                           {index === 0 ? (
                             <Typography variant='mono'>{value}</Typography>
                           ) : (
@@ -162,7 +161,7 @@ export function SheetFormatDialog({ open, onClose }) {
                 What each column is for
               </Typography>
               <Stack component='dl' spacing={1} sx={{ m: 0 }}>
-                {SHEET_COLUMNS.map((column) => (
+                {columns.map((column) => (
                   <Stack
                     key={column.name}
                     direction={{ xs: 'column', sm: 'row' }}
@@ -176,7 +175,7 @@ export function SheetFormatDialog({ open, onClose }) {
                       <Typography variant='bodyStrong' component='span'>
                         {column.name}
                       </Typography>
-                      {column.required ? ' — required' : ''}
+                      {column.required ? ' — required' : ' — optional'}
                     </Typography>
                     <Typography
                       component='dd'
@@ -192,28 +191,11 @@ export function SheetFormatDialog({ open, onClose }) {
             </Stack>
 
             <Stack component='ul' spacing={1} sx={{ pl: 3, m: 0 }}>
-              <Typography component='li' variant='body2'>
-                Every heading must match character for character. Anything else
-                in that cell leaves the column unread, and every row is rejected
-                for the field it was carrying.
-              </Typography>
-              <Typography component='li' variant='body2'>
-                Only the first two columns are required. Leave any other cell
-                empty and the next step asks for it, one person at a time.
-              </Typography>
-              <Typography component='li' variant='body2'>
-                A cell that is filled in but unreadable rejects that row and
-                says why. Nothing is ever substituted for it — a mistyped role
-                must not quietly become the wrong access.
-              </Typography>
-              <Typography component='li' variant='body2'>
-                Team and shift are not on the sheet. Each is its own operation
-                with its own history, so the next step asks for both.
-              </Typography>
-              <Typography component='li' variant='body2'>
-                Any further column is ignored, not rejected. Leave the rest of
-                the old workbook in place if it is easier.
-              </Typography>
+              {notes.map((note) => (
+                <Typography component='li' variant='body2' key={note}>
+                  {note}
+                </Typography>
+              ))}
             </Stack>
           </Stack>
         </DialogContent>

@@ -4,13 +4,12 @@ import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import MenuItem from '@mui/material/MenuItem';
+import Divider from '@mui/material/Divider';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
-import Switch from '@mui/material/Switch';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -18,14 +17,29 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ROLES, UNASSIGNED } from '../constants/index.js';
-import { outstandingDetails, readyToCommit } from '../utils/rosterImport.js';
+import {
+  outstandingDetails,
+  readyToCommit,
+  SHEET_COLUMNS,
+  SHEET_EXAMPLE_ROWS,
+  SHEET_NAME,
+  SHEET_NOTES,
+} from '../utils/rosterImport.js';
 import { PageHeader } from './PageHeader.jsx';
+import {
+  namedOutstanding,
+  ROSTER_DETAIL_FIELDS,
+  ROSTER_SWITCH_FIELDS,
+  RosterDetailControl,
+  RosterSwitchControl,
+} from './RosterDetailFields.jsx';
 import { SheetFormatDialog } from './SheetFormatDialog.jsx';
 
-const STEPS = ['Upload', 'Complete missing details', 'Commit'];
+const STEPS = ['Upload', 'Missing details', 'Commit'];
 
 /**
  * S-08. The one-time go-live migration of the roster (`FR-2.9`).
@@ -37,9 +51,15 @@ const STEPS = ['Upload', 'Complete missing details', 'Commit'];
  * Nothing is guessed. The sheet carries a code and a name; every other field
  * `FR-2.6` requires is asked for here, and the commit stays disabled until
  * every outstanding field is filled (`DC-6`).
+ *
+ * Step 2 answers at two widths. Above `md` it is a table, because a roster is
+ * read as a spreadsheet. Below it each person becomes a card, because a
+ * ten-column table on a phone is answered by dragging sideways once per field.
+ * `RosterDetailFields.jsx` holds the one definition both shapes render.
  */
 export function RosterImport({ teams, shifts, employmentTypes }) {
   const router = useRouter();
+  const headingId = useId();
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState([]);
   const [rejected, setRejected] = useState([]);
@@ -52,6 +72,14 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
    * unasked is a click, and the cost of hiding it behind one is a re-upload.
    */
   const [formatOpen, setFormatOpen] = useState(true);
+
+  /**
+   * Nothing here is server-rendered — step 2 exists only after a client-side
+   * upload — so the query has no first paint to disagree with.
+   */
+  const compact = useMediaQuery((activeTheme) =>
+    activeTheme.breakpoints.down('md'),
+  );
 
   const upload = async (event) => {
     event.preventDefault();
@@ -172,11 +200,66 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
 
   const canCommit = readyToCommit(resolved);
 
+  /** One control, wherever it is being drawn. */
+  const controlFor = (field, index, layout) => (
+    <RosterDetailControl
+      field={field}
+      row={rows[index]}
+      layout={layout}
+      onChange={set(index, field.key)}
+      teams={teams}
+      shifts={shifts}
+      employmentTypes={employmentTypes}
+      teamId={resolved[index].teamId}
+    />
+  );
+
+  const switchFor = (field, index, layout) => (
+    <RosterSwitchControl
+      field={field}
+      row={rows[index]}
+      layout={layout}
+      onChange={set(index, field.key)}
+    />
+  );
+
+  /**
+   * Complete, or how much is left. The names are the ones on the labels above,
+   * never the field keys — a chip reading `teamId, shiftId` tells somebody
+   * filling in a form nothing they can act on.
+   */
+  const outstandingChip = (missing, layout) => {
+    if (missing.length === 0) {
+      return <Chip variant='statusSuccess' label='Complete' />;
+    }
+
+    const names = namedOutstanding(missing);
+
+    return (
+      <Chip
+        variant='statusWarning'
+        // A card has the room to say which; a table cell has a title, and the
+        // card beneath this width is what a touch reader gets instead.
+        label={
+          layout === 'card'
+            ? `Still needs ${names.join(', ')}`
+            : `${names.length} outstanding`
+        }
+        title={names.join(', ')}
+      />
+    );
+  };
+
   return (
     <Stack spacing={3}>
       <SheetFormatDialog
         open={formatOpen}
         onClose={() => setFormatOpen(false)}
+        sheetName={SHEET_NAME}
+        columns={SHEET_COLUMNS}
+        exampleRows={SHEET_EXAMPLE_ROWS}
+        notes={SHEET_NOTES}
+        templateHref='/api/users/import/template'
       />
 
       <PageHeader
@@ -184,7 +267,7 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
         description='One-time go-live migration from the old workbook’s Biometric ID sheet. It imports people, not attendance — historical attendance is deliberately not migrated. Nothing is guessed or defaulted, and the commit stays disabled until every outstanding field is filled.'
       />
 
-      <Stepper activeStep={step}>
+      <Stepper activeStep={step} alternativeLabel={compact}>
         {STEPS.map((label) => (
           <Step key={label}>
             <StepLabel>{label}</StepLabel>
@@ -204,7 +287,11 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                 two switches as well. The code is the only thing used to match a
                 person — a name never is.
               </Typography>
-              <Stack direction='row' spacing={1}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+              >
                 <Button type='button' onClick={() => setFormatOpen(true)}>
                   What the sheet must look like
                 </Button>
@@ -265,28 +352,74 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
             in.
           </Alert>
 
-          <Paper variant='outlined' sx={{ overflowX: 'auto' }}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Employee code</TableCell>
-                  <TableCell>Full name</TableCell>
-                  <TableCell>Work email</TableCell>
-                  <TableCell>Team</TableCell>
-                  <TableCell>Employment type</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Tracked</TableCell>
-                  <TableCell>Login</TableCell>
-                  <TableCell>Date of joining</TableCell>
-                  <TableCell>Shift</TableCell>
-                  <TableCell>Outstanding</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, index) => {
-                  const missing = outstandingDetails(resolved[index]);
+          {compact ? (
+            <Stack spacing={2}>
+              {rows.map((row, index) => (
+                <Paper
+                  key={row.employeeCode}
+                  variant='outlined'
+                  component='section'
+                  aria-labelledby={`${headingId}-${index}`}
+                >
+                  <Stack spacing={2} sx={{ p: 2 }}>
+                    <Stack spacing={1}>
+                      <Typography variant='mono'>{row.employeeCode}</Typography>
+                      <Typography
+                        id={`${headingId}-${index}`}
+                        variant='bodyStrong'
+                        component='h3'
+                      >
+                        {row.fullName}
+                      </Typography>
+                      <Stack direction='row'>
+                        {outstandingChip(
+                          outstandingDetails(resolved[index]),
+                          'card',
+                        )}
+                      </Stack>
+                    </Stack>
 
-                  return (
+                    <Divider />
+
+                    <Stack spacing={2}>
+                      {ROSTER_DETAIL_FIELDS.map((field) => (
+                        <div key={field.key}>
+                          {controlFor(field, index, 'card')}
+                        </div>
+                      ))}
+                    </Stack>
+
+                    <Divider />
+
+                    <Stack spacing={2}>
+                      {ROSTER_SWITCH_FIELDS.map((field) => (
+                        <div key={field.key}>
+                          {switchFor(field, index, 'card')}
+                        </div>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          ) : (
+            <Paper variant='outlined' sx={{ overflowX: 'auto' }}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Employee code</TableCell>
+                    <TableCell>Full name</TableCell>
+                    {ROSTER_DETAIL_FIELDS.map((field) => (
+                      <TableCell key={field.key}>{field.label}</TableCell>
+                    ))}
+                    {ROSTER_SWITCH_FIELDS.map((field) => (
+                      <TableCell key={field.key}>{field.label}</TableCell>
+                    ))}
+                    <TableCell>Outstanding</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, index) => (
                     <TableRow key={row.employeeCode} hover>
                       <TableCell>
                         <Typography variant='mono'>
@@ -294,138 +427,30 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
                         </Typography>
                       </TableCell>
                       <TableCell>{row.fullName}</TableCell>
+                      {ROSTER_DETAIL_FIELDS.map((field) => (
+                        <TableCell key={field.key}>
+                          {controlFor(field, index, 'table')}
+                        </TableCell>
+                      ))}
+                      {ROSTER_SWITCH_FIELDS.map((field) => (
+                        <TableCell key={field.key}>
+                          {switchFor(field, index, 'table')}
+                        </TableCell>
+                      ))}
                       <TableCell>
-                        <TextField
-                          type='email'
-                          value={row.workEmail}
-                          onChange={set(index, 'workEmail')}
-                          aria-label={`Work email for ${row.fullName}`}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          select
-                          value={row.teamId}
-                          onChange={set(index, 'teamId')}
-                          aria-label={`Team for ${row.fullName}`}
-                          sx={{ minWidth: 140 }}
-                        >
-                          <MenuItem value={UNASSIGNED}>Choose</MenuItem>
-                          {teams.map((team) => (
-                            <MenuItem key={team._id} value={team._id}>
-                              {team.name}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          select
-                          value={row.employmentType}
-                          onChange={set(index, 'employmentType')}
-                          aria-label={`Employment type for ${row.fullName}`}
-                          sx={{ minWidth: 140 }}
-                          slotProps={{
-                            select: { displayEmpty: true },
-                            inputLabel: { shrink: true },
-                          }}
-                        >
-                          <MenuItem value=''>Choose</MenuItem>
-                          {employmentTypes.map((type) => (
-                            <MenuItem key={type} value={type}>
-                              {type}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          select
-                          value={row.role}
-                          onChange={set(index, 'role')}
-                          aria-label={`Role for ${row.fullName}`}
-                          sx={{ minWidth: 140 }}
-                        >
-                          {Object.values(ROLES).map((role) => (
-                            <MenuItem key={role} value={role}>
-                              {role}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                      </TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={row.tracked}
-                          onChange={set(index, 'tracked')}
-                          slotProps={{
-                            input: {
-                              'aria-label': `${row.fullName} is tracked`,
-                            },
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Switch
-                          checked={row.loginEnabled}
-                          onChange={set(index, 'loginEnabled')}
-                          slotProps={{
-                            input: {
-                              'aria-label': `${row.fullName} may sign in`,
-                            },
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          type='date'
-                          value={row.dateOfJoining}
-                          onChange={set(index, 'dateOfJoining')}
-                          aria-label={`Date of joining for ${row.fullName}`}
-                          slotProps={{ inputLabel: { shrink: true } }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <TextField
-                          select
-                          value={row.shiftId}
-                          onChange={set(index, 'shiftId')}
-                          aria-label={`Shift for ${row.fullName}`}
-                          disabled={!row.tracked}
-                          sx={{ minWidth: 160 }}
-                        >
-                          <MenuItem value={UNASSIGNED}>Choose</MenuItem>
-                          {shifts
-                            .filter(
-                              (shift) =>
-                                resolved[index].teamId === null ||
-                                shift.teamId === resolved[index].teamId,
-                            )
-                            .map((shift) => (
-                              <MenuItem key={shift._id} value={shift._id}>
-                                {shift.name}
-                              </MenuItem>
-                            ))}
-                        </TextField>
-                      </TableCell>
-                      <TableCell>
-                        {missing.length === 0 ? (
-                          <Chip variant='statusSuccess' label='Complete' />
-                        ) : (
-                          <Chip
-                            variant='statusWarning'
-                            label={`${missing.length} outstanding`}
-                            title={missing.join(', ')}
-                          />
+                        {outstandingChip(
+                          outstandingDetails(resolved[index]),
+                          'table',
                         )}
                       </TableCell>
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </Paper>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          )}
 
-          <Stack direction='row' spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <Button
               variant='contained'
               onClick={commit}

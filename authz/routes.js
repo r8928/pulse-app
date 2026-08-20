@@ -129,7 +129,7 @@ const ROUTE_RULES = [
   // `import` as a user id and hand the bulk load to anyone with
   // attendance.read.
   {
-    pattern: /^\/api\/attendance\/import\/(validate|commit)$/,
+    pattern: /^\/api\/attendance\/import\/(validate|commit|template)$/,
     permission: PERMISSIONS.ATTENDANCE_IMPORT,
   },
   {

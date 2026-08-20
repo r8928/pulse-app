@@ -100,6 +100,38 @@ export const SHEET_COLUMNS = Object.freeze([
 ]);
 
 /**
+ * Two example people, invented, for the guide `S-08` shows before a file is
+ * chosen. Nobody should read a real colleague into an example, and the pair
+ * between them shows every column both filled and left blank — a support-staff
+ * row genuinely has no email and never signs in.
+ *
+ * The first row is `SHEET_COLUMNS`' own examples, so it cannot drift from the
+ * glossary printed beneath it.
+ */
+export const SHEET_EXAMPLE_ROWS = Object.freeze([
+  SHEET_COLUMNS.map((column) => column.example),
+  Object.freeze([
+    'CB-1043',
+    'Daniyal Khan',
+    '',
+    'SUPPORT_STAFF',
+    'EMPLOYEE',
+    '2022-04-04',
+    'TRUE',
+    'FALSE',
+  ]),
+]);
+
+/** What the guide says about the sheet as a whole, beyond the columns. */
+export const SHEET_NOTES = Object.freeze([
+  'Every heading must match character for character. Anything else in that cell leaves the column unread, and every row is rejected for the field it was carrying.',
+  'Only the first two columns are required. Leave any other cell empty and the next step asks for it, one person at a time.',
+  'A cell that is filled in but unreadable rejects that row and says why. Nothing is ever substituted for it — a mistyped role must not quietly become the wrong access.',
+  'Team and shift are not on the sheet. Each is its own operation with its own history, so the next step asks for both.',
+  'Any further column is ignored, not rejected. Leave the rest of the old workbook in place if it is easier.',
+]);
+
+/**
  * The fields the sheet does not carry. `S-08` step 2 lists every user against
  * every one of these that is still outstanding.
  */

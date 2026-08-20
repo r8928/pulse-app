@@ -1689,6 +1689,7 @@ only, `null` for anything created in the application, and never a foreign key.
 | `PATCH` | `/api/attendance/[userId]/[date]/override` | `attendance.write` |
 | `POST` | `/api/attendance/import/validate` | `attendance.import` |
 | `POST` | `/api/attendance/import/commit` | `attendance.import` |
+| `GET` | `/api/attendance/import/template` | `attendance.import` |
 | `DELETE` | `/api/attendance/[userId]/[date]/override` | `attendance.write` |
 | `POST` | `/api/leave-records`, `/api/leave-records/[id]/soft-delete` | `leave.write` |
 
@@ -1705,7 +1706,15 @@ bounded call, and creating records is a write however it is reached.
 ### 25.3 The import
 
 `FR-4.2`–`FR-4.5`, `FR-4.11`. Format: `Sr No.`, `Employee Code`,
-`Employee Name`, `Type`, `Date`, `Time`.
+`Employee Name`, `Type`, `Date`, `Time`, held once as
+`ATTENDANCE_SHEET_COLUMNS` in `utils/attendanceImport.js`.
+
+`S-11` opens `SheetFormatDialog` on arrival and `GET
+/api/attendance/import/template` hands out a blank sheet, for the same reason
+`S-08` does both: `readSheetRows` keys each row on its exact trimmed heading,
+so a differently spelled heading rejects every row at once and the preview
+cannot say why. The parser, the guide and the template are all built from that
+one column list, so none of the three can drift.
 
 1. **Confirm the date format before validation runs** (`FR-4.11`). Reject any
    row whose date cannot be parsed unambiguously under it, stating that as the
@@ -1917,9 +1926,17 @@ Roster, detail Overview/Tenures/History, create, soft delete and restore are
   reader looks at a column full of names. `SheetFormatDialog` opens on arrival
   to prevent that, and `GET /api/users/import/template` hands out a blank sheet
   with the headings already right.
+- **`SheetFormatDialog` and `sheetTemplateResponse` are shared with `S-11`.**
+  Both take the sheet's shape as an argument and hold no roster knowledge of
+  their own. A change to either is a change to both imports.
 - **`SHEET_COLUMNS` drives the parser, the guide and the template.** Adding a
   column in `utils/rosterImport.js` adds it to all three; a second copy of the
   list anywhere is how a template starts lying about what imports.
+- **`S-08` step 2 is one definition in two shapes.** `RosterDetailFields.jsx`
+  holds the field order, the labels and the controls; `RosterImport` draws them
+  as a table above `md` and as one card per person below it. Adding a field in
+  one shape only is how the two stop being the same screen — and a phone is the
+  shape nobody looks at while building.
 - **A blank cell and an unreadable one are different answers.** Blank leaves
   the field outstanding for step 2 to ask about; filled-but-unreadable rejects
   the row and names the column. Neither is ever replaced by a default — a
