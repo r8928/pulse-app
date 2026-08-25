@@ -15,8 +15,15 @@ const held = (...permissions) =>
   Object.fromEntries(permissions.map((p) => [p, SCOPES.ALL]));
 
 describe('NAVIGATION', () => {
-  it('covers all nine modules', () => {
-    expect(NAVIGATION).toHaveLength(9);
+  it('covers all eight modules', () => {
+    // Eight since the Attendance & Leaves merge retired the Reports module:
+    // its columns are part of the attendance summary and its export is a
+    // button on it, so a separate entry would be a second door to one room.
+    expect(NAVIGATION).toHaveLength(8);
+  });
+
+  it('offers no Reports module, so there is one door to the report columns', () => {
+    expect(NAVIGATION.map((item) => item.route)).not.toContain('/reports');
   });
 
   it('gives every item a route and a label', () => {

@@ -77,9 +77,13 @@ describe('requiredPermissionFor', () => {
     );
   });
 
-  it('gates the daily entry grid on attendance write', () => {
-    expect(requiredPermissionFor('/attendance/entry')).toBe(
-      PERMISSIONS.ATTENDANCE_WRITE,
+  it('gates the daily attendance page on attendance read, not write', () => {
+    // It holds two views. The by-date grid is a writer's surface and the page
+    // itself offers it only to writers; the day-by-day view beside it is what
+    // a colleague reads about themselves. Gating the PATH on the write
+    // permission would shut them out of a screen that is theirs.
+    expect(requiredPermissionFor('/attendance/daily')).toBe(
+      PERMISSIONS.ATTENDANCE_READ,
     );
   });
 
@@ -146,16 +150,30 @@ describe('requiredPermissionFor', () => {
     );
   });
 
-  it('gates the report builder on report build, which EMPLOYEE does not hold', () => {
-    expect(requiredPermissionFor('/reports')).toBe(PERMISSIONS.REPORT_BUILD);
-  });
-
   it('gates the annual summary on attendance read, which EMPLOYEE does hold', () => {
-    // FR-8.1: the annual summary is readable for any colleague, unlike the
-    // report builder next to it.
-    expect(requiredPermissionFor('/reports/annual')).toBe(
+    // FR-8.1: one colleague's year is readable for any colleague, exactly as
+    // everyone could read everyone's in the workbook this replaces.
+    expect(requiredPermissionFor('/attendance/annual')).toBe(
       PERMISSIONS.ATTENDANCE_READ,
     );
+  });
+
+  it('still gates the export API on report build, which EMPLOYEE does not hold', () => {
+    // The report builder's SCREEN is gone — its columns are part of the
+    // attendance summary now, where the rows are already narrowed to the
+    // viewer's scope. Producing a file of them is still restricted (FR-8.1).
+    expect(requiredPermissionFor('/api/reports/export')).toBe(
+      PERMISSIONS.REPORT_BUILD,
+    );
+  });
+
+  it('leaves the retired routes open, because they only redirect', () => {
+    // There is no screen at either any more, only a forward to one that gates
+    // properly. Gating the doorway too would answer 403 to somebody following
+    // an old link to a page they are allowed to read.
+    expect(requiredPermissionFor('/reports')).toBe(null);
+    expect(requiredPermissionFor('/reports/annual')).toBe(null);
+    expect(requiredPermissionFor('/attendance/entry')).toBe(null);
   });
 
   it('gates the audit log on audit read', () => {

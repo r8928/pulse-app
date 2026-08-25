@@ -1,0 +1,459 @@
+'use client';
+
+import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
+import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
+import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
+import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { PERIOD_MODE } from '../../constants/index.js';
+import { periodQuery } from '../../utils/period.js';
+import { plural } from '../../utils/plural.js';
+import {
+  collapsedFromParam,
+  collapsedToParam,
+  flattenSummaryRow,
+  summaryColumnGroups,
+  visibleColumns,
+} from '../../utils/summaryColumns.js';
+import { EmptyState } from '../EmptyState.jsx';
+import { PeriodFilter } from './PeriodFilter.jsx';
+
+/**
+ * Page 1. One row per colleague, merging what used to be three screens: the
+ * attendance overview, the leave balances and the report builder.
+ *
+ * They were never independent. A reader comparing absences against a leave
+ * balance had two tabs open and had to trust that both were filtered the same
+ * way; the merge removes the question by removing the second tab.
+ *
+ * That costs thirty-two columns, so the header is two tiers and every group
+ * but the identifying one collapses to a single headline figure. The frozen
+ * name and code are what make sideways scrolling readable — without them a
+ * reader four columns to the right no longer knows whose row they are on.
+ */
+export function AttendanceSummary({
+  rows,
+  teams,
+  people,
+  leaveTypes,
+  period,
+  filters,
+  untrackedCount = 0,
+  canExport = false,
+  canFilterPeople = true,
+  viewerId = null,
+}) {
+  const router = useRouter();
+  const [exporting, setExporting] = useState(false);
+
+  const groups = summaryColumnGroups(leaveTypes);
+  const collapsed = collapsedFromParam(filters.groups ?? null, groups);
+  const columns = visibleColumns(groups, collapsed);
+  const flatRows = rows.map((row) => flattenSummaryRow(row, leaveTypes));
+
+  const go = (next) => {
+    const merged = {
+      ...periodQuery(period),
+      teamId: filters.teamId,
+      userId: filters.userId,
+      groups: filters.groups,
+      ...next,
+    };
+
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(merged)) {
+      if (value) query.set(key, String(value));
+    }
+
+    router.push(`/attendance?${query}`);
+  };
+
+  const toggleGroup = (groupId) => {
+    const next = new Set(collapsed);
+    if (next.has(groupId)) next.delete(groupId);
+    else next.add(groupId);
+    go({ groups: collapsedToParam(next) });
+  };
+
+  /**
+   * `P-43`. The rows on screen go up with the request rather than being
+   * re-queried, so the file is exactly the report the sender was looking at.
+   *
+   * Every column travels, whatever is collapsed: a collapsed group is a
+   * reading convenience, and a spreadsheet missing the figures behind it would
+   * be a different report from the one the sender thought they were sending.
+   */
+  const exportAs = async (format) => {
+    setExporting(true);
+    try {
+      const filename = `pulse-attendance-${period.from}-to-${period.to}`;
+      const response = await fetch('/api/reports/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format,
+          columns: visibleColumns(groups, new Set()),
+          rows: flatRows,
+          filename,
+        }),
+      });
+
+      if (!response.ok) return;
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${filename}.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <Stack spacing={2}>
+      <Paper variant='outlined' sx={{ p: 2 }}>
+        <Stack spacing={2}>
+          <PeriodFilter
+            period={period}
+            onChange={(next) =>
+              // The period keys are cleared before the new ones are applied, so
+              // switching from a custom range to a week cannot leave a stale
+              // from/to behind for the next link to pick up.
+              go({ mode: '', anchor: '', from: '', to: '', ...next })
+            }
+          />
+
+          {canFilterPeople ? (
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={2}
+              sx={{ alignItems: { md: 'center' } }}
+            >
+              <TextField
+                select
+                label='Team'
+                value={filters.teamId ?? ''}
+                onChange={(event) => go({ teamId: event.target.value })}
+                slotProps={{
+                  select: { displayEmpty: true },
+                  inputLabel: { shrink: true },
+                }}
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value=''>Every team</MenuItem>
+                {teams.map((team) => (
+                  <MenuItem key={team._id} value={team._id}>
+                    {team.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                label='Colleague'
+                value={filters.userId ?? ''}
+                onChange={(event) => go({ userId: event.target.value })}
+                slotProps={{
+                  select: { displayEmpty: true },
+                  inputLabel: { shrink: true },
+                }}
+                sx={{ minWidth: 220 }}
+              >
+                <MenuItem value=''>Everyone</MenuItem>
+                {people.map((person) => (
+                  <MenuItem key={person._id} value={person._id}>
+                    {person.fullName}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {viewerId ? (
+                <Button
+                  type='button'
+                  variant={
+                    filters.userId === viewerId ? 'contained' : 'outlined'
+                  }
+                  onClick={() =>
+                    go({ userId: filters.userId === viewerId ? '' : viewerId })
+                  }
+                >
+                  Just me
+                </Button>
+              ) : null}
+
+              {canExport ? (
+                <Stack direction='row' spacing={1} sx={{ ml: { md: 'auto' } }}>
+                  <Button
+                    type='button'
+                    variant='outlined'
+                    startIcon={<DownloadOutlined />}
+                    disabled={exporting || rows.length === 0}
+                    onClick={() => exportAs('xlsx')}
+                  >
+                    Excel
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outlined'
+                    disabled={exporting || rows.length === 0}
+                    onClick={() => exportAs('csv')}
+                  >
+                    CSV
+                  </Button>
+                </Stack>
+              ) : null}
+            </Stack>
+          ) : null}
+        </Stack>
+      </Paper>
+
+      {untrackedCount > 0 ? (
+        <Alert severity='info'>
+          {untrackedCount} untracked{' '}
+          {untrackedCount === 1 ? 'colleague is' : 'colleagues are'} excluded
+          from every total below. Untracked colleagues receive no day records at
+          all, so there is nothing to count for them.
+        </Alert>
+      ) : null}
+
+      {rows.length === 0 ? (
+        <EmptyState
+          title='Nothing recorded in this period'
+          description='No colleague this filter reaches has a record between these dates. A date nothing has touched carries no record at all, so this is silence rather than absence.'
+        />
+      ) : (
+        <Paper variant='outlined'>
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table stickyHeader>
+              <TableHead>
+                <TableRow>
+                  {groups.map((group) => (
+                    <GroupHeader
+                      key={group.id}
+                      group={group}
+                      collapsed={collapsed.has(group.id)}
+                      onToggle={() => toggleGroup(group.id)}
+                    />
+                  ))}
+                </TableRow>
+                <TableRow>
+                  {columns.map((column, index) => (
+                    <TableCell
+                      key={column.key}
+                      align={column.numeric ? 'right' : 'left'}
+                      sx={frozenCell(index, true)}
+                    >
+                      {column.label}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+
+              <TableBody>
+                {rows.map((row, rowIndex) => (
+                  <TableRow key={row.userId} hover>
+                    {columns.map((column, index) => (
+                      <TableCell
+                        key={column.key}
+                        align={column.numeric ? 'right' : 'left'}
+                        sx={frozenCell(index)}
+                      >
+                        <SummaryCell
+                          column={column}
+                          row={row}
+                          value={flatRows[rowIndex][column.key]}
+                          period={period}
+                        />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
+
+      <Typography variant='caption' color='text.secondary'>
+        Expected hours are the shift held on each working day, with approved
+        leave already netted off — the leave that was netted off is the column
+        beside it. Working days and holidays come from the calendar of the team
+        each colleague held on each date, not their current team.{' '}
+        {plural(leaveTypes.length, 'leave type')} appear as columns because the
+        period holds movements under them.
+      </Typography>
+    </Stack>
+  );
+}
+
+/**
+ * The top tier: a group's name and its chevron.
+ *
+ * A collapsed group still occupies its headline column, so the two tiers stay
+ * in step — a header spanning more or fewer cells than the body beneath it is
+ * the drift `columnPriority.js` exists to prevent.
+ */
+function GroupHeader({ group, collapsed, onToggle }) {
+  const span = collapsed ? 1 : group.columns.length;
+
+  if (!group.collapsible) {
+    return (
+      <TableCell colSpan={span} sx={frozenGroupHeader(group)}>
+        <Typography variant='metricLabel'>{group.label}</Typography>
+      </TableCell>
+    );
+  }
+
+  return (
+    <TableCell colSpan={span}>
+      <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
+        <Tooltip
+          title={
+            collapsed
+              ? `Show every ${group.label} column`
+              : `Collapse ${group.label} to one column`
+          }
+        >
+          <IconButton
+            size='small'
+            onClick={onToggle}
+            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group.label}`}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <KeyboardArrowRight fontSize='small' />
+            ) : (
+              <KeyboardArrowDown fontSize='small' />
+            )}
+          </IconButton>
+        </Tooltip>
+        <Typography variant='metricLabel'>{group.label}</Typography>
+      </Stack>
+    </TableCell>
+  );
+}
+
+/** One cell. The identifying columns carry links; everything else is a figure. */
+function SummaryCell({ column, row, value, period }) {
+  if (column.key === 'fullName') {
+    return (
+      <Stack spacing={0.25}>
+        <Link href={`/users/${row.userId}`}>{row.fullName}</Link>
+        {row.noLongerActive ? (
+          <Chip variant='statusNeutral' label='No longer active' />
+        ) : null}
+      </Stack>
+    );
+  }
+
+  if (column.key === 'employeeCode') {
+    return (
+      <Stack direction='row' spacing={0.5} sx={{ alignItems: 'center' }}>
+        <Typography variant='mono'>{value}</Typography>
+        <Tooltip title='Their year, month by month'>
+          <IconButton
+            size='small'
+            component={Link}
+            href={`/attendance/annual?userId=${row.userId}&year=${period.from.slice(0, 4)}`}
+            aria-label={`Open ${row.fullName}'s year`}
+          >
+            <CalendarMonthOutlined fontSize='small' />
+          </IconButton>
+        </Tooltip>
+      </Stack>
+    );
+  }
+
+  /**
+   * `BR-16` caps work-from-home per MONTH, so the ceiling is only shown beside
+   * the count when the period IS a month. A week's usage against a monthly
+   * quota reads as a ratio and is not one; over a custom range spanning two
+   * months it is not one either. In both cases the count stands alone and the
+   * quota is stated in words on hover, which cannot be misread as a fraction.
+   */
+  if (column.key === 'wfh') {
+    if (row.wfhQuota === null || row.wfhQuota === undefined) {
+      return <Typography variant='mono'>{value}</Typography>;
+    }
+
+    const perMonth = `${row.wfhQuota} work-from-home days a month`;
+
+    if (period.mode !== PERIOD_MODE.MONTHLY) {
+      return (
+        <Typography variant='mono' title={perMonth}>
+          {value}
+        </Typography>
+      );
+    }
+
+    return (
+      <Typography variant='mono' title={perMonth}>
+        {value} of {row.wfhQuota}
+      </Typography>
+    );
+  }
+
+  // A balance links to the movements that produced it: NFR-11 is answerable
+  // only if "why is this number what it is" is one click from the number.
+  if (column.key.startsWith('leave:')) {
+    const [, leaveType] = column.key.split(':');
+    return (
+      <Link href={`/leave/${row.userId}/ledger?leaveType=${leaveType}`}>
+        <Typography variant='mono'>{value}</Typography>
+      </Link>
+    );
+  }
+
+  return <Typography variant='mono'>{value}</Typography>;
+}
+
+/**
+ * The two identifying columns stay put while the rest scrolls sideways.
+ *
+ * Thirty-two columns do not fit an 834px tablet at any font size worth
+ * reading, so the table scrolls rather than shrinking — and a reader four
+ * columns to the right has to still know whose row they are on.
+ */
+const frozenCell = (index, inHeader = false) =>
+  index < 2
+    ? {
+        position: 'sticky',
+        left: index === 0 ? 0 : 200,
+        // The header has to win against a body cell frozen in the same
+        // column, or the two overlap as the table scrolls under it.
+        zIndex: inHeader ? 4 : 2,
+        backgroundColor: 'background.paper',
+        minWidth: index === 0 ? 200 : 140,
+      }
+    : undefined;
+
+const frozenGroupHeader = (group) =>
+  group.id === 'identity'
+    ? {
+        position: 'sticky',
+        left: 0,
+        zIndex: 5,
+        backgroundColor: 'background.paper',
+      }
+    : undefined;

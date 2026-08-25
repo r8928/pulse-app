@@ -26,12 +26,22 @@ const ROUTE_RULES = [
   { pattern: /^\/users(\/[^/]+)?$/, permission: PERMISSIONS.USER_READ },
 
   {
-    pattern: /^\/attendance\/entry$/,
-    permission: PERMISSIONS.ATTENDANCE_WRITE,
-  },
-  {
     pattern: /^\/attendance\/import$/,
     permission: PERMISSIONS.ATTENDANCE_IMPORT,
+  },
+  /**
+   * Page 2 gates on the READ permission, not the write one.
+   *
+   * It holds two views. The by-date grid is an editing surface and is offered
+   * only to writers — the page itself decides that, because a reader given the
+   * tab would meet a 403 by clicking a thing they could see. The day-by-day
+   * view beside it is read only and is exactly what a colleague reads about
+   * themselves, so gating the path on attendance.write would shut them out of
+   * a screen that is theirs.
+   */
+  {
+    pattern: /^\/attendance\/(daily|annual)$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
   },
   {
     pattern: /^\/attendance(\/[^/]+\/[^/]+)?$/,
@@ -47,10 +57,17 @@ const ROUTE_RULES = [
   { pattern: /^\/settings\/access$/, permission: PERMISSIONS.PERMISSION_WRITE },
   { pattern: /^\/settings$/, permission: PERMISSIONS.CONFIG_READ },
 
-  // FR-8.1: the annual summary is readable for any colleague; the report
-  // builder beside it is explicitly not granted to EMPLOYEE.
-  { pattern: /^\/reports\/annual$/, permission: PERMISSIONS.ATTENDANCE_READ },
-  { pattern: /^\/reports$/, permission: PERMISSIONS.REPORT_BUILD },
+  /**
+   * Retired by the Attendance & Leaves merge, and kept only so the redirects
+   * in `next.config.mjs` are reachable.
+   *
+   * `null` rather than a permission: there is no screen here any more, only a
+   * forward to one that gates properly. Gating the doorway too would answer
+   * 403 to somebody following an old link to a page they are allowed to read.
+   * DC-6 still holds — the destination does the checking.
+   */
+  { pattern: /^\/reports(\/annual)?$/, permission: null },
+  { pattern: /^\/attendance\/entry$/, permission: null },
 
   { pattern: /^\/audit$/, permission: PERMISSIONS.AUDIT_READ },
 

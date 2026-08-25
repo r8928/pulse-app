@@ -12,6 +12,7 @@ import {
   APPROVAL_STATUS,
   APPROVAL_TYPE,
   DAY_STATUS,
+  DAY_TYPE,
   HALF_DAY_PERIOD,
   HOLIDAY_TYPE,
   LEDGER_ENTRY_TYPE,
@@ -759,6 +760,30 @@ export async function getUserById(id, companyId = DEFAULT_COMPANY_ID) {
  * FR-2.4: a soft deleted user stays listed and is marked no longer active, so
  * they are included by default and excluded only on request.
  */
+/**
+ * Several colleagues by id, in one read, name order.
+ *
+ * Soft-deleted ones are included deliberately: a screen showing a past period
+ * has to show who was there then, marked as no longer active (FR-2.4). An id
+ * that matches nobody is simply absent from the result rather than an error —
+ * the caller is showing a roster, not asserting one exists.
+ */
+export async function listUsersByIds(userIds, companyId = DEFAULT_COMPANY_ID) {
+  if (!userIds || userIds.length === 0) return [];
+
+  const db = await getDb();
+  const ids = userIds
+    .filter((id) => ObjectId.isValid(id))
+    .map((id) => new ObjectId(id));
+  if (ids.length === 0) return [];
+
+  return db
+    .collection(COLLECTIONS.USERS)
+    .find({ companyId, _id: { $in: ids } })
+    .sort({ fullName: 1 })
+    .toArray();
+}
+
 export async function listUsers({
   search = '',
   teamId = null,
@@ -1230,6 +1255,25 @@ export async function changeUserRole(
   return after;
 }
 
+/**
+ * Rows already sorted by user, as a map from user id to their rows.
+ *
+ * A user with no rows is absent from the map rather than present with an
+ * empty array; every caller reads it through `?? []`, and inventing entries
+ * for a roster of hundreds costs more than the fallback does.
+ */
+function groupByUser(rows) {
+  const byUser = new Map();
+
+  for (const row of rows) {
+    const held = byUser.get(row.userId);
+    if (held) held.push(row);
+    else byUser.set(row.userId, [row]);
+  }
+
+  return byUser;
+}
+
 export async function listTeamAssignments(
   userId,
   companyId = DEFAULT_COMPANY_ID,
@@ -1240,6 +1284,21 @@ export async function listTeamAssignments(
     .find({ companyId, userId, deletedAt: null })
     .sort({ effectiveFrom: 1, _id: 1 })
     .toArray();
+}
+
+/** The same read for a whole roster at once, grouped by user. */
+export async function listTeamAssignmentsForUsers(
+  userIds,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const rows = await db
+    .collection(COLLECTIONS.TEAM_ASSIGNMENTS)
+    .find({ companyId, userId: { $in: userIds }, deletedAt: null })
+    .sort({ userId: 1, effectiveFrom: 1, _id: 1 })
+    .toArray();
+
+  return groupByUser(rows);
 }
 
 /**
@@ -2644,6 +2703,29 @@ async function softDeleteOwnedRecord(
 // --- Shifts ----------------------------------------------------------------
 
 /** FR-3.3: shifts are per team configuration, not a global list. */
+/**
+ * Several shifts by id, in one read.
+ *
+ * A day record names the shift held on that date, and a screen showing a month
+ * of them needs each one's timezone to print a punch in the zone it was made
+ * in (§7.2). Reading them one at a time would be a round trip per row.
+ */
+export async function listShiftsByIds(
+  shiftIds,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const ids = [...new Set(shiftIds ?? [])]
+    .filter((id) => ObjectId.isValid(id))
+    .map((id) => new ObjectId(id));
+  if (ids.length === 0) return [];
+
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.SHIFTS)
+    .find({ companyId, _id: { $in: ids } })
+    .toArray();
+}
+
 export async function listShifts(
   teamId,
   { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
@@ -3815,6 +3897,119 @@ export async function listDayRecords({
 }
 
 /**
+ * The bookends of every work date in a range, for every colleague at once.
+ *
+ * The first check-in and the last check-out, so a day broken by a lunch break
+ * reads as one span rather than two — the day-by-day view is answering "when
+ * did they arrive and when did they leave", which the middle pairs do not
+ * change. `punchPairs.js` remains the place that reasons about the pairs
+ * themselves.
+ *
+ * Only dated punches take part. One the engine has not resolved a work date
+ * for belongs to no day yet, and guessing one here would put it under a
+ * heading the rest of the app disagrees with.
+ */
+export async function summarisePunchDays({
+  userIds,
+  from,
+  to,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+
+  const rows = await db
+    .collection(COLLECTIONS.PUNCHES)
+    .aggregate([
+      {
+        $match: {
+          companyId,
+          deletedAt: null,
+          userId: { $in: userIds },
+          workDate: { $gte: from, $lte: to },
+        },
+      },
+      {
+        $group: {
+          _id: { userId: '$userId', date: '$workDate' },
+          checkIn: {
+            $min: {
+              $cond: [{ $eq: ['$type', PUNCH_TYPE.CHECK_IN] }, '$at', null],
+            },
+          },
+          checkOut: {
+            $max: {
+              $cond: [{ $eq: ['$type', PUNCH_TYPE.CHECK_OUT] }, '$at', null],
+            },
+          },
+          punchCount: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.userId': 1, '_id.date': 1 } },
+    ])
+    .toArray();
+
+  return rows.map((row) => ({
+    userId: row._id.userId,
+    date: row._id.date,
+    // A day with only a check-in keeps its arrival and reports no departure.
+    // FR-4.8 makes the missing counterpart an exception, never zero hours, so
+    // the column says nothing rather than saying midnight.
+    checkIn: row.checkIn ?? null,
+    checkOut: row.checkOut ?? null,
+    punchCount: row.punchCount,
+  }));
+}
+
+/** Every colleague's leave inside a range, in one read. */
+export async function listLeaveRecords({
+  userIds,
+  from,
+  to,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+
+  return db
+    .collection(COLLECTIONS.LEAVE_RECORDS)
+    .find({
+      companyId,
+      deletedAt: null,
+      userId: { $in: userIds },
+      date: { $gte: from, $lte: to },
+    })
+    .sort({ date: 1, userId: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * Every ledger entry several colleagues hold up to a closing date, oldest
+ * first — the batched form of `listLedgerEntriesForUser`.
+ *
+ * The order is the contract, not a convenience: the caller accumulates a
+ * running balance through it, and a different order gives a different figure
+ * for the same day. Entries are never soft deleted (DC-3 cancels by appending
+ * a reversal), so there is no `deletedAt` filter to omit.
+ */
+export async function listLedgerEntriesForUsers({
+  userIds,
+  to = null,
+  leaveType = null,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId, userId: { $in: userIds } };
+
+  if (to) filter.date = { $lte: to };
+  if (leaveType) filter.leaveType = leaveType;
+
+  return db
+    .collection(COLLECTIONS.LEDGER_ENTRIES)
+    .find(filter)
+    .sort({ userId: 1, date: 1, createdAt: 1, _id: 1 })
+    .toArray();
+}
+
+/**
  * §27.1's day-level queues, all four of them, in one paged read.
  *
  * §27.2: **derive, do not accumulate.** These are conclusions living on the
@@ -4360,9 +4555,21 @@ export async function summariseAttendance({
 }) {
   const db = await getDb();
 
+  /**
+   * An id that cannot parse reaches NOBODY, rather than dropping the filter.
+   *
+   * `authz/rosterScope.js` narrows a viewer holding no scope to a sentinel id
+   * nobody holds, and a caller may equally arrive with a hand-edited URL.
+   * Ignoring the unparseable value would widen the query from one colleague to
+   * every colleague — failing open is the one outcome DC-6 forbids.
+   */
+  if (userId && !ObjectId.isValid(userId)) {
+    return { rows: [], untrackedCount: 0 };
+  }
+
   const userFilter = { companyId, tracked: true };
   if (teamId) userFilter.teamId = teamId;
-  if (userId && ObjectId.isValid(userId)) userFilter._id = new ObjectId(userId);
+  if (userId) userFilter._id = new ObjectId(userId);
   if (!includeDeleted) userFilter.deletedAt = null;
 
   const users = await db
@@ -4402,6 +4609,26 @@ export async function summariseAttendance({
    * `wfh` remains its own column because BR-16 caps it as a quota.
    */
 
+  /**
+   * The two hours totals, `FR-8.3`, read off the day record rather than off
+   * the user.
+   *
+   * A record already carries the shift held on THAT date and the day type
+   * resolved for it, so a colleague who moved shift mid-month is counted
+   * against each shift on the dates it applied. Looking up their current shift
+   * instead would get that wrong and say nothing about having done so.
+   *
+   * Approved leave is netted off the expectation and reported beside it, so
+   * "checked in against expected" reads as a real shortfall rather than
+   * punishing anyone who took the leave they are owed.
+   */
+  const effectiveWorkedMinutes = {
+    $ifNull: [
+      { $ifNull: ['$override.workedMinutes', '$computed.workedMinutes'] },
+      0,
+    ],
+  };
+
   const totals = await db
     .collection(COLLECTIONS.DAY_RECORDS)
     .aggregate([
@@ -4411,6 +4638,67 @@ export async function summariseAttendance({
           deletedAt: null,
           userId: { $in: userIds },
           date: { $gte: from, $lte: to },
+        },
+      },
+      {
+        // A shift deleted since the record was written leaves an empty array
+        // rather than failing the stage, which `$ifNull` below turns into an
+        // expectation of zero — a missing shift cannot be an expectation.
+        $lookup: {
+          from: COLLECTIONS.SHIFTS,
+          let: { shiftId: '$shiftId' },
+          pipeline: [
+            {
+              $match: { $expr: { $eq: [{ $toString: '$_id' }, '$$shiftId'] } },
+            },
+            { $project: { requiredDailyMinutes: 1 } },
+          ],
+          as: 'shiftHeld',
+        },
+      },
+      {
+        $lookup: {
+          from: COLLECTIONS.LEAVE_RECORDS,
+          let: { forUser: '$userId', onDate: '$date' },
+          pipeline: [
+            {
+              $match: {
+                companyId,
+                deletedAt: null,
+                $expr: {
+                  $and: [
+                    { $eq: ['$userId', '$$forUser'] },
+                    { $eq: ['$date', '$$onDate'] },
+                  ],
+                },
+              },
+            },
+            { $project: { amount: 1 } },
+          ],
+          as: 'leaveTaken',
+        },
+      },
+      {
+        $set: {
+          requiredMinutes: {
+            $cond: [
+              { $eq: ['$dayType', DAY_TYPE.WORKING] },
+              {
+                $ifNull: [{ $first: '$shiftHeld.requiredDailyMinutes' }, 0],
+              },
+              0,
+            ],
+          },
+          // A half day is 0.5, so it removes half the expectation and reports
+          // half a day of leave. BR-11's full day removes all of it.
+          leaveShare: { $ifNull: [{ $first: '$leaveTaken.amount' }, 0] },
+        },
+      },
+      {
+        $set: {
+          approvedLeaveMinutes: {
+            $multiply: ['$requiredMinutes', '$leaveShare'],
+          },
         },
       },
       {
@@ -4435,6 +4723,11 @@ export async function summariseAttendance({
           }),
           lateDays: countWhen({ $gt: [effectiveLate, 0] }),
           shortDays: countWhen({ $eq: ['$computed.isShortDay', true] }),
+          checkedInMinutes: { $sum: effectiveWorkedMinutes },
+          expectedMinutes: {
+            $sum: { $subtract: ['$requiredMinutes', '$approvedLeaveMinutes'] },
+          },
+          approvedLeaveMinutes: { $sum: '$approvedLeaveMinutes' },
         },
       },
     ])
@@ -4490,6 +4783,9 @@ export async function summariseAttendance({
       holidayWork: totalsForUser.holidayWork ?? 0,
       lateDays: totalsForUser.lateDays ?? 0,
       shortDays: totalsForUser.shortDays ?? 0,
+      checkedInMinutes: totalsForUser.checkedInMinutes ?? 0,
+      expectedMinutes: totalsForUser.expectedMinutes ?? 0,
+      approvedLeaveMinutes: totalsForUser.approvedLeaveMinutes ?? 0,
       leaveByType: leaveByUser.get(id) ?? {},
     };
   });
@@ -4656,6 +4952,28 @@ export async function listTenures(userId, companyId = DEFAULT_COMPANY_ID) {
     .find({ companyId, userId, deletedAt: null })
     .sort({ startDate: 1 })
     .toArray();
+}
+
+/**
+ * The same read for a whole roster at once, grouped by user.
+ *
+ * A screen showing a month for every colleague needs each person's employment
+ * period. Calling the single-user form in a loop is one round trip per
+ * colleague per page load, which is the shape NFR-3's two-second budget rules
+ * out — so the batched form exists even though the single one already does.
+ */
+export async function listTenuresForUsers(
+  userIds,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const rows = await db
+    .collection(COLLECTIONS.TENURES)
+    .find({ companyId, userId: { $in: userIds }, deletedAt: null })
+    .sort({ userId: 1, startDate: 1 })
+    .toArray();
+
+  return groupByUser(rows);
 }
 
 /**

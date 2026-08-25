@@ -6,7 +6,7 @@ import {
   requireActor,
 } from '../../../authz/guard.js';
 import { PERMISSIONS } from '../../../constants/index.js';
-import { buildAttendanceReport } from '../../../engine/reports.js';
+import { buildAttendanceSummary } from '../../../engine/reports.js';
 import { errorResponse } from '../../../utils/apiResponse.js';
 
 /**
@@ -35,7 +35,7 @@ export async function GET(request) {
     }
 
     return NextResponse.json(
-      await buildAttendanceReport({
+      await buildAttendanceSummary({
         from,
         to,
         teamId: url.searchParams.get('teamId') || null,

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from './auth.js';
 import { resolveScope } from './authz/check.js';
 import { isPublicPath, requiredPermissionFor } from './authz/routes.js';
+import { SCOPES } from './constants/index.js';
 import { findUserByWorkEmail, getPermissionGrants } from './database.js';
 
 /**
@@ -66,6 +67,25 @@ export const proxy = auth(async (request) => {
     const denied = new URL('/403', request.nextUrl);
     denied.searchParams.set('permission', permission);
     return NextResponse.redirect(denied);
+  }
+
+  /**
+   * A colleague whose leave permission reaches only themselves lands on their
+   * own balance history rather than on a picker.
+   *
+   * The picker at `/leave` exists to choose between colleagues. Someone with a
+   * SELF scope has nobody to choose between, so it would be a list of one
+   * person that exists only to be clicked through.
+   *
+   * This lives here because CLAUDE.md permits no redirect anywhere else, and
+   * because the scope is already resolved a line above — deciding it in the
+   * page would mean resolving the grants a second time, which is the drift
+   * `proxy.js` is the single validator in order to prevent.
+   */
+  if (pathname === '/leave' && scope === SCOPES.SELF) {
+    return NextResponse.redirect(
+      new URL(`/leave/${user._id}/ledger`, request.nextUrl),
+    );
   }
 
   // Hand the resolved decision downstream so a handler need not resolve it a

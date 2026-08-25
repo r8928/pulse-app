@@ -43,7 +43,7 @@ export function AnnualSummary({ summary, people, filters }) {
 
   const go = (next) => {
     const query = new URLSearchParams({ ...filters, ...next });
-    router.push(`/reports/annual?${query}`);
+    router.push(`/attendance/annual?${query}`);
   };
 
   const years = [];

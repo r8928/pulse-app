@@ -5,6 +5,9 @@ import {
   createShift,
   createTeam,
   createUser,
+  getTeamPolicy,
+  listShifts,
+  postOpeningBalance,
   setWeeklyOffPattern,
   softDeleteUser,
   updateTeamPolicy,
@@ -12,7 +15,7 @@ import {
 } from '../database.js';
 import {
   buildAnnualSummary,
-  buildAttendanceReport,
+  buildAttendanceSummary,
 } from '../engine/reports.js';
 import { useTestDatabase } from '../test/mongo.js';
 
@@ -91,7 +94,7 @@ describe('engine/reports', () => {
       exceptions: [],
     });
 
-  describe('buildAttendanceReport', () => {
+  describe('buildAttendanceSummary', () => {
     it('carries the working-day count beside what the person actually did', async () => {
       const team = await aTeam();
       const user = await aUser(String(team._id));
@@ -99,7 +102,7 @@ describe('engine/reports', () => {
       await aPresentDay(userId, '2026-08-10');
       await aPresentDay(userId, '2026-08-11');
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
       });
@@ -123,7 +126,7 @@ describe('engine/reports', () => {
       );
       const user = await aUser(String(team._id));
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
       });
@@ -140,7 +143,7 @@ describe('engine/reports', () => {
       await aUser(String(team._id));
       const untracked = await aUser(String(team._id), { tracked: false });
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
       });
@@ -166,7 +169,7 @@ describe('engine/reports', () => {
         user.version,
       );
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
         includeDeleted: true,
@@ -184,14 +187,14 @@ describe('engine/reports', () => {
       const inA = await aUser(String(teamA._id));
       await aUser(String(teamB._id));
 
-      const byTeam = await buildAttendanceReport({
+      const byTeam = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
         teamId: String(teamA._id),
       });
       expect(byTeam.rows).toHaveLength(1);
 
-      const byUser = await buildAttendanceReport({
+      const byUser = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
         userId: String(inA._id),
@@ -205,7 +208,7 @@ describe('engine/reports', () => {
       const user = await aUser(String(team._id));
       await aPresentDay(String(user._id), '2026-08-11');
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-11',
         to: '2026-08-11',
       });
@@ -227,7 +230,7 @@ describe('engine/reports', () => {
         user.version,
       );
 
-      const report = await buildAttendanceReport({
+      const report = await buildAttendanceSummary({
         from: '2026-08-10',
         to: '2026-08-16',
         includeDeleted: true,
@@ -237,6 +240,167 @@ describe('engine/reports', () => {
       // Monday and Tuesday only — the rest is not absence, it is not
       // employment (FR-2.12).
       expect(row.workingDays).toBe(2);
+    });
+
+    /**
+     * The three screens the merge folded in. Each assertion is here because
+     * losing it would put a column on page 1 that quietly disagrees with the
+     * screen it was taken from.
+     */
+    it('carries every leave balance beside the attendance, keyed by type', async () => {
+      const team = await aTeam();
+      const user = await aUser(String(team._id));
+      const userId = String(user._id);
+
+      await postOpeningBalance(
+        {
+          userId,
+          leaveType: 'Annual',
+          amount: 12,
+          date: '2026-01-01',
+          reason: 'Cutover',
+        },
+        actor,
+      );
+      await postOpeningBalance(
+        {
+          userId,
+          leaveType: 'Sick',
+          amount: 8,
+          date: '2026-01-01',
+          reason: 'Cutover',
+        },
+        actor,
+      );
+
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-16',
+      });
+
+      const row = report.rows.find((candidate) => candidate.userId === userId);
+      expect(Object.keys(row.balancesByType).sort()).toEqual([
+        'Annual',
+        'Sick',
+      ]);
+      expect(row.balancesByType.Annual.opening).toBe(12);
+      expect(row.balancesByType.Annual.balance).toBe(12);
+    });
+
+    it('keeps the WFH quota count out of the leave-balance columns (D-13)', async () => {
+      const team = await aTeam();
+      const user = await aUser(String(team._id));
+      const userId = String(user._id);
+
+      await postOpeningBalance(
+        {
+          userId,
+          leaveType: 'Annual',
+          amount: 12,
+          date: '2026-01-01',
+          reason: 'Cutover',
+        },
+        actor,
+      );
+
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-16',
+      });
+
+      const row = report.rows.find((candidate) => candidate.userId === userId);
+      // A quota is a ceiling, not a pool — it has its own column and no
+      // opening, credited or availed to show under a balance heading.
+      expect(row.balancesByType.WFH).toBeUndefined();
+      expect(row.balancesByType.PTO).toBeUndefined();
+    });
+
+    it('carries the hours checked in and the hours expected', async () => {
+      const team = await aTeam();
+      const user = await aUser(String(team._id));
+      const userId = String(user._id);
+
+      // The real shift, not a placeholder: the expectation is read off the
+      // shift the day record says was held, so a made-up id expects nothing.
+      const [shift] = (await listShifts(String(team._id))).items;
+
+      for (const date of ['2026-08-10', '2026-08-11']) {
+        await upsertDayRecord({
+          userId,
+          date,
+          teamId: String(team._id),
+          shiftId: String(shift._id),
+          dayType: 'WORKING',
+          computed: {
+            dayStatus: 'WFO',
+            workedMinutes: 540,
+            lateMinutes: 0,
+            earlyMinutes: 0,
+            deduction: 0,
+            deductionRule: null,
+            isShortDay: false,
+          },
+          exceptions: [],
+        });
+      }
+
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-11',
+      });
+
+      const row = report.rows.find((candidate) => candidate.userId === userId);
+      expect(row.checkedInMinutes).toBe(1080);
+      expect(row.expectedMinutes).toBe(1080);
+      expect(row.approvedLeaveMinutes).toBe(0);
+    });
+
+    it("carries the team's work-from-home quota, the ceiling WFH is counted against (BR-16)", async () => {
+      const team = await aTeam();
+      // `aTeam` already created the policy, so this edit carries its version —
+      // a null one is a first write and would be refused as stale (§6).
+      const existing = await getTeamPolicy(String(team._id));
+      await updateTeamPolicy(
+        String(team._id),
+        { wfhQuotaDaysPerMonth: 5 },
+        existing.version,
+        actor,
+      );
+      const user = await aUser(String(team._id));
+
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-16',
+      });
+
+      expect(
+        report.rows.find((row) => row.userId === String(user._id)).wfhQuota,
+      ).toBe(5);
+    });
+
+    it('leaves the quota null where none is configured, rather than guessing (DC-6)', async () => {
+      const team = await aTeam();
+      const user = await aUser(String(team._id));
+
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-16',
+      });
+
+      expect(
+        report.rows.find((row) => row.userId === String(user._id)).wfhQuota,
+      ).toBe(null);
+    });
+
+    it('gives an empty result for a range nobody is in rather than throwing', async () => {
+      const report = await buildAttendanceSummary({
+        from: '2026-08-10',
+        to: '2026-08-16',
+        userId: '60b8d295f1e2a40000000000',
+      });
+
+      expect(report.rows).toEqual([]);
+      expect(report.from).toBe('2026-08-10');
     });
   });
 

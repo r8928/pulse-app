@@ -54,12 +54,12 @@ established over inventing a new one.
 
 **Part III — [Modules](#part-iii--modules)**
 [24 M-6 Organisation](#24-m-6--organisation-and-policy) ·
-[25 M-4 Attendance](#25-m-4--attendance) ·
+[25 M-4 Attendance & Leaves](#25-m-4--attendance--leaves) ·
 [26 M-5 Leave](#26-m-5--leave-and-balances) ·
 [27 M-2 Exceptions](#27-m-2--exceptions) ·
 [28 M-3 People remainder](#28-m-3--people-the-remainder) ·
 [29 M-7 Config and access](#29-m-7--config-and-access-control) ·
-[30 M-8 Reports](#30-m-8--reports) ·
+[30 Reports, merged into M-4](#30-reports--merged-into-m-4) ·
 [31 M-9 Audit](#31-m-9--audit)
 
 **Part IV — [Sequencing](#part-iv--sequencing)**
@@ -1657,13 +1657,52 @@ only, `null` for anything created in the application, and never a foreign key.
 - **No company-wide timezone setting exists and none may be added.** `S-18`
   states this on screen.
 
-## 25 M-4 · Attendance
+## 25 M-4 · Attendance & Leaves
 
 **Phase:** `P5`, except `P-07` resolve duplicate punch, which is `P6` with the
 `S-05` queue that reaches it.
-**Screens:** `S-09` overview · `S-10` daily grid · `S-11` import · `S-12` day detail
-**Popups:** `P-21`–`P-25`, `P-07`
+**Screens:** `S-09` summary · `S-10` daily attendance · `S-11` import · `S-12` day detail · `S-21` annual summary
+**Popups:** `P-21`–`P-25`, `P-07`, `P-43`
 **Depends on:** M-6, and Part II.
+
+### 25.0 Exactly three pages
+
+The module is three pages and no more. This is a deliberate reshape of what
+was five screens across three modules, and the reason each merge happened
+matters more than the fact that it did:
+
+| Page | Route | Was |
+| ---- | ----- | --- |
+| 1 Summary | `/attendance` | `S-09` overview + `S-13` balances + `S-20` report builder |
+| 2 Daily attendance | `/attendance/daily` | `S-10` grid, plus a new day-by-day view |
+| 3 Balance history | `/leave/<id>/ledger` | `S-14`, unchanged |
+
+**Why the summary is one table.** The three it replaces were never independent.
+A reader comparing absences against a leave balance had two tabs open and had
+to trust that both were filtered the same way. One row per colleague removes
+the question rather than answering it.
+
+**Why that is not a permission escalation.** `S-20` was withheld from
+`EMPLOYEE` and `S-09` was not, so merging them naively would hand every
+colleague the company-wide report. It does not, because the ROWS are narrowed
+before the query runs — `authz/rosterScope.js` turns the viewer's
+`attendance.read` scope into the filter the roster read takes. `FR-1.2` puts
+the difference between reading about yourself and reading about everyone in
+the scope, not in a second screen; `report.build` still gates the export.
+
+**Why page 2 gates on the read permission.** It holds two views, and only one
+of them writes. The by-date grid materialises a team's day records when it
+opens (`D-15`), so it is offered only to writers and only one view is rendered
+per request — a hidden tab that touched a month on the way past would be a
+side effect nobody asked for. The day-by-day view beside it is read only and
+is what a colleague reads about themselves.
+
+**Why the retired routes still resolve.** `/reports`, `/reports/annual` and
+`/attendance/entry` redirect rather than 404. A link somebody has already sent
+answering 404 the day after a reshuffle costs as much as the invisible screen
+`README.md` already warns about, and their route rules are `null` on purpose:
+gating a doorway that only forwards would answer 403 to someone following an
+old link to a page they may read.
 
 ### 25.1 What to build
 
@@ -1673,10 +1712,15 @@ only, `null` for anything created in the application, and never a foreign key.
    or fewer from `S-04` (`NFR-1`).
 4. **`S-12` day detail**: punches, computed values, deduction with its named
    rule, and each override beside the engine value.
-5. **`S-09` overview**: aggregate statistics over a date range.
+5. **`S-09` summary**: one row per colleague — calendar, attendance, hours and
+   every leave balance — over a week, a month or any range. Column groups
+   collapse; the collapsed set travels in the URL, so a view is a link.
 6. **`S-11` Excel import**: upload → confirm date format → preview → atomic
    commit.
 7. **Day overrides** (`P-23`, `P-24`, `P-25`).
+8. **Day-by-day view**: every date in a period for whoever is selected, read
+   only. Continuous by construction — see §25.4.
+9. **Export** (`P-43`): the summary as currently filtered, `report.build`.
 
 ### 25.2 Contracts
 
@@ -1703,7 +1747,65 @@ later would put the day and the balance in disagreement.
 `attendance.write` rather than the read permission — it is `D-15`'s single
 bounded call, and creating records is a write however it is reached.
 
-### 25.3 The import
+### 25.3 The day-by-day view
+
+`engine/dayByDay.js`, in the shape of the workbook it replaces: one block per
+colleague, one row per date, the name spanning the block as a merged cell does.
+Columns: day and date, check-in, check-out, total hours, leave balance, leave
+used, leave awarded.
+
+**Continuous by construction.** Every date in the period gets a row whether or
+not anything was recorded on it. A view assembled only from the records that
+exist cannot show a gap, and the gap — the Tuesday nobody punched, the week
+nobody opened the grid on — is what a reader came for. It is workbook defect
+`F1` one level down: a date with nothing on it is a fact, not the absence of
+one. Dates outside the employment period are marked rather than shown as
+absence (`FR-2.12`).
+
+**Five batched reads, never one per colleague.** `listUsersByIds`,
+`listDayRecords`, `summarisePunchDays`, `listLeaveRecords`,
+`listLedgerEntriesForUsers`, then `listTenuresForUsers` for the employment
+marking. The per-user form of each still exists and is still right for a
+single-colleague screen; a month of a team is not that shape, and `NFR-3`'s two
+seconds are spent by a loop of round trips long before the roster is large
+enough for anyone to notice it happening.
+
+**Check-in is the first, check-out the last.** A day broken by a lunch break
+reads as one span: the column answers "when did they arrive and when did they
+leave", which the middle pairs do not change. `punchPairs.js` remains the place
+that reasons about the pairs themselves. A missing counterpart says nothing
+rather than saying midnight (`FR-4.8`).
+
+**The balance is the running one, after that date's movements**, accumulated
+through the ledger in the order it arrives — the same order and therefore the
+same figure `S-14` shows for the same day. The WFH pseudo-type is excluded:
+`D-13` makes it a count against a quota rather than a pool drawn from a
+deposit, so adding it would make one column mean two things.
+
+### 25.4 The two hours totals
+
+`checkedInMinutes` and `expectedMinutes` are read off the DAY RECORD inside
+`summariseAttendance`, not replayed per user. A record already carries the
+shift held on that date and the day type resolved for it, so a colleague who
+moved shift mid-month is counted against each shift on the dates it applied —
+which a lookup of their current shift would get wrong, silently.
+
+**Approved leave is netted off the expectation and reported beside it.** A
+colleague on three days of approved leave in a 22-day month is expected for 19
+days, not 22, and the 24 hours deducted are their own column so the deduction
+is visible rather than inferred. Half days are exact: the leave record's
+`amount` multiplies that day's required minutes, so 0.5 removes half.
+
+A day whose shift no longer exists expects zero rather than throwing. A missing
+shift cannot be an expectation.
+
+**The WFH quota is shown only over a month.** `BR-16` caps work-from-home per
+MONTH, so `3 of 5` is a ratio only when the period IS a month. Over a week, or
+a custom range spanning two months, the count stands alone and the ceiling is
+stated in words on hover — which cannot be misread as a fraction. A team with
+no quota configured shows the plain count and no ceiling at all (`DC-6`).
+
+### 25.5 The import
 
 `FR-4.2`–`FR-4.5`, `FR-4.11`. Format: `Sr No.`, `Employee Code`,
 `Employee Name`, `Type`, `Date`, `Time`, held once as
@@ -1731,7 +1833,7 @@ one column list, so none of the three can drift.
 5. `NFR-4`: 40,000 rows validate and preview in under 10 seconds. Validate in
    memory against one bulk-loaded map of employee codes; do not query per row.
 
-### 25.4 Traps
+### 25.6 Traps
 
 - **A punch is not immutable** (`FR-4.12`). A wrong punch is fixed by *editing
   it* — never by adding a cancelling punch, never by overriding the day. Every
@@ -1752,15 +1854,19 @@ one column list, so none of the three can drift.
 **Phase:** split. `S-13`, `S-14`, `P-19`, `P-20`, `P-26` are `P5` — the ledger
 and the balances replayed from it. `S-15`, `P-01`–`P-04` and `P-27` are `P6`
 with the rest of PTO and CTO.
-**Screens:** `S-13` balances · `S-14` ledger · `S-15` PTO and CTO
+**Screens:** `S-13` person picker · `S-14` balance history · `S-15` PTO and CTO
 **Popups:** `P-19`, `P-20`, `P-26`, `P-27`, `P-01`–`P-04`
 **Depends on:** M-4 and Part II §19–§22.
 
 ### 26.1 What to build
 
 1. **Ledger writes and replay** (§19).
-2. **`S-13`**: typed balances per user, per month and per year. Every figure
-   links to `S-14`.
+2. **`S-13`**: the person picker. The typed balances that used to live here
+   are page 1 of M-4 now, one row per colleague beside the attendance they
+   explain; what is left is the choosing. A viewer whose `leave.read` scope is
+   SELF never sees it — `proxy.js` sends them straight to their own `S-14`,
+   because a list of one person exists only to be clicked through. That
+   redirect lives in `proxy.js` and nowhere else (CLAUDE.md).
 3. **`S-14`**: every movement in order, with running balance, named rule,
    actor, reason and reversal marker. **Read only — nothing here can be edited
    or deleted.**
@@ -1985,11 +2091,17 @@ from.
 - **MVP criterion 7** is the acceptance test: move a permission from one role
   to another and it takes effect on the next request, with no redeploy.
 
-## 30 M-8 · Reports
+## 30 Reports — merged into M-4
 
-**Phase:** `P6` — the whole module.
-**Screens:** `S-20` report builder · `S-21` annual summary · **Popup:** `P-43`
-**Depends on:** everything. Build last.
+**Phase:** `P6`. **The module no longer exists as a navigation entry.**
+
+`S-20`'s columns are part of the M-4 summary (§25.0), `P-43`'s export is a
+button on it, and `S-21` lives at `/attendance/annual`, reached from a row of
+that summary. `report.build` survives as the permission gating the export and
+the `/api/reports` endpoints; what disappeared is the second door to one room.
+
+Everything below still holds — it is where the report's rules are written
+down, and the summary inherits every one of them.
 
 ### 30.1 Traps
 
@@ -2005,8 +2117,10 @@ from.
   row, never silently omitted — this is workbook defect **F1** and MVP
   criterion 9. Months outside the employment period are marked as such rather
   than shown as absence.
-- **`S-20` is not granted to `EMPLOYEE`**, unlike the `S-09` read surface
-  (`FR-8.1`).
+- **The report columns are not granted to `EMPLOYEE` company-wide**
+  (`FR-8.1`). Since the merge this is enforced by SCOPE rather than by a
+  separate screen: an `EMPLOYEE` reaches the summary and sees their own row.
+  `report.build` still gates the export and `/api/reports`.
 - `NFR-3`: a full-company month at the `NFR-5` ceiling renders under 2 seconds
   at p95, **paged rather than materialised whole**.
 
@@ -2101,7 +2215,7 @@ what breaks if you go earlier; §32.1 says which phase owns it.
         └─ MVP criteria 15, 16, 17, 19
         │
         ▼
-    9  M-8 Reports                          §30
+    9  Reports, merged into M-4              §30, §25.0
         └─ MVP criteria 9, 10, 13
 ```
 
@@ -2154,7 +2268,7 @@ ladder. Building them in the other order means inventing all four.
 | Group | Screens | Popups | Requirements |
 | ----- | ------- | ------ | ------------ |
 | Engine core (§13–§20, §23) | — | — | `FR-3.5`, `FR-3.10`, `FR-3.11`, `FR-3.14`, `FR-5.1`–`FR-5.9`, `FR-6.1`, `FR-6.11`, `FR-6.12`, `BR-5`, `BR-6`, `BR-8`, `BR-9`, `BR-11`, `BR-27` |
-| M-4 Attendance (§25) | `S-09` `S-10` `S-11` `S-12` | `P-21`–`P-25` | `FR-4.1`–`FR-4.6`, `FR-4.9`–`FR-4.12` |
+| M-4 Attendance & Leaves (§25) | `S-09` `S-10` `S-11` `S-12` `S-21` | `P-21`–`P-25`, `P-43` | `FR-4.1`–`FR-4.6`, `FR-4.9`–`FR-4.12`, `FR-3.9`, `FR-8.3`–`FR-8.5` |
 | M-5 Ledger and balances (§26) | `S-13` `S-14` | `P-19`, `P-20`, `P-26` | `FR-2.7`, `FR-6.2`, `FR-6.3`, `FR-6.5`, `FR-6.6`, `FR-6.8`, `FR-6.9`, `FR-6.13`, `BR-12`–`BR-17` |
 
 **Why these are intermediate.** Each is a calculation with one correct answer,
@@ -2171,7 +2285,7 @@ computes, the ledger records, the screens display.
 | PTO and CTO (§21, §22) | `S-15` | `P-01`–`P-04`, `P-27` | `FR-7.1`–`FR-7.8`, `FR-6.10`, `BR-18`–`BR-26` |
 | M-2 Exceptions (§27) | `S-05`, `S-04` completion | `P-05`–`P-07` | `FR-8.6`, `FR-3.12`, `FR-3.13`, `FR-4.7`, `FR-4.8` |
 | `FR-2.11` reduction approval (§28) | — | `P-05` | `FR-2.4`, `FR-2.10`, `FR-2.11` |
-| M-8 Reports (§30) | `S-20` `S-21` | `P-43` | `FR-3.9`, `FR-8.1`, `FR-8.3`–`FR-8.5` |
+| Reports — merged into M-4 (§30) | — | — | `FR-3.9`, `FR-8.1`, `FR-8.3`–`FR-8.5` |
 
 **Why these are complex.** Every item holds state across more than one request
 and more than one actor: a proposal that must not post, a decision that must

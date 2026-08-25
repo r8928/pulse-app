@@ -1,64 +1,71 @@
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
-import { endOfMonth, format, startOfMonth } from 'date-fns';
-import { AttendanceOverview } from '../../../components/attendance/AttendanceOverview.jsx';
+import { rosterFiltersFor } from '../../../authz/rosterScope.js';
+import { AttendanceSummary } from '../../../components/attendance/AttendanceSummary.jsx';
 import { PageHeader } from '../../../components/PageHeader.jsx';
 import { PERMISSIONS } from '../../../constants/index.js';
-import { listTeams, summariseAttendance } from '../../../database.js';
+import { listTeams, listUsers } from '../../../database.js';
+import { buildAttendanceSummary } from '../../../engine/reports.js';
 import { getSessionUser } from '../../../session.js';
+import { periodFromSearchParams } from '../../../utils/period.js';
 
 /**
- * S-09. Server component: it reads the session and the data and hands both
- * down as props.
+ * Page 1 — Summary. The merge of what used to be three screens: the attendance
+ * overview (`S-09`), the leave balances (`S-13`) and the report builder
+ * (`S-20`).
  *
- * The totals are computed by the database (`summariseAttendance`), not here —
- * NFR-3 puts a full-company month under two seconds at p95, and pulling every
- * record back to add it up stops meeting that long before the roster does.
+ * Server component: it reads the session and the data and hands both down as
+ * props (CLAUDE.md — the client leaf never reads the session).
+ *
+ * One screen for every role. The difference between a colleague reading about
+ * themselves and an administrator reading about everyone is the SCOPE their
+ * `attendance.read` is granted at (`FR-1.2`), not a second screen — which is
+ * why the report builder's columns can sit here safely: the rows are already
+ * narrowed to what the viewer may see before the query runs.
  */
-export default async function AttendanceOverviewPage({ searchParams }) {
+export default async function AttendanceSummaryPage({ searchParams }) {
   const params = await searchParams;
   const viewer = await getSessionUser();
 
-  const today = new Date();
-  const filters = {
-    from: params?.from ?? format(startOfMonth(today), 'yyyy-MM-dd'),
-    to: params?.to ?? format(endOfMonth(today), 'yyyy-MM-dd'),
-    teamId: params?.teamId ?? '',
-    userId: params?.userId ?? '',
-    includeDeleted: params?.includeDeleted === 'true',
-  };
+  const period = periodFromSearchParams(params);
+  const scoped = rosterFiltersFor(
+    viewer.permissions[PERMISSIONS.ATTENDANCE_READ],
+    viewer,
+    { teamId: params?.teamId, userId: params?.userId },
+  );
 
-  const [teams, summary] = await Promise.all([
-    listTeams({ includeDeleted: false, pageSize: 200 }),
-    summariseAttendance({
-      from: filters.from,
-      to: filters.to,
-      teamId: filters.teamId || null,
-      userId: filters.userId || null,
-      includeDeleted: filters.includeDeleted,
+  const [summary, teams, roster] = await Promise.all([
+    buildAttendanceSummary({
+      from: period.from,
+      to: period.to,
+      teamId: scoped.teamId,
+      userId: scoped.userId,
     }),
+    listTeams({ includeDeleted: false, pageSize: 200 }),
+    listUsers({ includeDeleted: true, pageSize: 500 }),
   ]);
 
   /**
-   * One column per leave type anyone actually took in the range. Reading them
-   * off the results rather than off policy keeps the table honest: a type no
-   * longer offered still shows the days already taken under it (FR-6.4 makes
-   * the list editable at runtime).
+   * One column group per leave type anyone actually has movements under.
+   * Reading them off the results rather than off policy keeps the table honest:
+   * a type no longer offered still shows the days already taken under it
+   * (`FR-6.4` makes the list editable at runtime).
    */
   const leaveTypes = [
-    ...new Set(summary.rows.flatMap((row) => Object.keys(row.leaveByType))),
+    ...new Set(
+      summary.rows.flatMap((row) => Object.keys(row.balancesByType ?? {})),
+    ),
   ].sort();
 
   return (
     <Stack spacing={3}>
       <PageHeader
-        title='Attendance'
-        description='What the engine concluded for every colleague over a chosen range. A colleague who has left keeps unchanged figures inside their employment period, marked as no longer active.'
+        title='Attendance summary'
+        description='One row per colleague: what the engine concluded, what the calendar expected, and what every leave balance stands at. A colleague who has left keeps unchanged figures inside their employment period, marked as no longer active.'
         actions={
-          // S-11 is routed and gated but was linked from nowhere. `href`
-          // rather than `component={Link}`: this is a server component, and
-          // passing the component through fails the build.
+          // `href` rather than `component={Link}`: this is a server component,
+          // and passing the component through fails the build.
           viewer.permissions[PERMISSIONS.ATTENDANCE_IMPORT] ? (
             <Button
               href='/attendance/import'
@@ -71,7 +78,7 @@ export default async function AttendanceOverviewPage({ searchParams }) {
         }
       />
 
-      <AttendanceOverview
+      <AttendanceSummary
         rows={summary.rows.map((row) => ({
           ...row,
           deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
@@ -80,9 +87,20 @@ export default async function AttendanceOverviewPage({ searchParams }) {
           _id: String(team._id),
           name: team.name,
         }))}
+        people={roster.items.map((person) => ({
+          _id: String(person._id),
+          fullName: person.fullName,
+        }))}
         leaveTypes={leaveTypes}
-        filters={filters}
+        period={period}
+        filters={{
+          teamId: params?.teamId ?? '',
+          userId: params?.userId ?? '',
+          groups: params?.groups ?? null,
+        }}
         untrackedCount={summary.untrackedCount}
+        canExport={Boolean(viewer.permissions[PERMISSIONS.REPORT_BUILD])}
+        canFilterPeople={scoped.canFilterPeople}
         viewerId={viewer?.userId ?? null}
       />
     </Stack>

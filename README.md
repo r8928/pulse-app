@@ -41,7 +41,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Google sign-in, five distinct rejection reasons | Done |
 | RBAC + ABAC + FGAC, grants stored as data | Done |
 | `proxy.js` endpoint check, `guard.js` record check | Done |
-| App shell, all 22 screens routed and gated | Done |
+| App shell, every screen routed and gated | Done |
 | People: roster, detail, create, soft delete, restore | Done |
 | Company config: employment types, authorised domains (`S-18`) | Done |
 | Access control matrix, effective next request (`S-19`) | Done |
@@ -58,15 +58,20 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture: daily grid, day detail, punch and override popups (`S-10`, `S-12`) | Done |
-| Attendance overview over a date range (`S-09`) | Done, except PTO balances |
-| Leave balances and the ledger trace (`S-13`, `S-14`) | Done — every figure replayed, never stored |
+| **Attendance & Leaves in exactly three pages** | Done — summary, daily attendance, balance history |
+| Summary: attendance + leave balances + report columns, one row per colleague | Done — rows narrowed by the viewer's scope |
+| Hours checked in against hours expected, approved leave netted off and shown | Done |
+| WFH used against the team's monthly quota | Done — the ratio only over a month, since `BR-16` caps it per month |
+| Weekly / monthly / custom period filter, week starting Monday | Done — the period is in the URL, so a view is a link |
+| Day-by-day view: every date in a period, per colleague | Done — continuous, so a gap is visible |
+| Balance history and the ledger trace (`S-14`) | Done — every figure replayed, never stored |
 | Day classification (`FR-5.x`) | Done — engine, ledger posting and both screens |
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done |
 | Leave engine (`FR-6.x`): entitlements, proration, carry forward | Done |
 | PTO and CTO (`FR-7.x`, `S-15`) | Done — proposed by the engine, decided only by a human |
 | Exceptions dashboard, all twelve queues (`FR-8.6`, `S-05`) | Done — derived live, so fixing the record clears the queue |
 | Employment-period reduction approval (`FR-2.11`, `P-05`) | Done — the soft delete never waits for it; only the stranded records do |
-| Report builder, annual summary, export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date |
+| Annual summary and export (`FR-8.3`–`FR-8.5`) | Done — working days come from the calendar held on each date; both now live under Attendance |
 | Attendance Excel import (`S-11`) | Done — confirm the date format, preview, then commit atomically |
 | Sheet format guide on arriving at `S-11`, plus a blank punch template to download | Done |
 | Light and dark colour schemes, chosen from the top bar | Done — CitrusBits palette, both schemes AA-verified |
@@ -146,6 +151,25 @@ configured.
 were both built, both permission-gated and both reachable only by typing the
 URL, so the go-live roster import was invisible to the people who needed it.
 Adding a route is not shipping a screen.
+
+**A retired route must still resolve.** `/reports`, `/reports/annual` and
+`/attendance/entry` redirect from `next.config.mjs` and their rules in
+`authz/routes.js` are `null` on purpose. A link somebody already sent
+answering 404 costs as much as the invisible screen above; gating a doorway
+that only forwards would answer 403 to someone allowed to read the
+destination.
+
+**A list is scoped before the query, not after.** `guard.js` answers "does this
+scope reach this record" once a record has been read. A screen showing a roster
+has to ask first, or it fetches rows it must then throw away — and one
+forgotten filter shows a colleague the whole company. That is
+`authz/rosterScope.js`, and it is why the report columns can sit on a screen
+`EMPLOYEE` reaches.
+
+**Only one view of `/attendance/daily` renders per request.** The by-date grid
+materialises a team's day records when it opens (`D-15`). A hidden tab is not
+allowed to do that on the way past, which is why the view lives in the URL
+rather than in component state.
 
 **Dates go through `date-fns`.** No `new Date()` for parsing or arithmetic.
 

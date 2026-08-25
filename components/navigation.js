@@ -1,7 +1,7 @@
 import { PERMISSIONS } from '../constants/index.js';
 
 /**
- * The nine top-level modules, in nav order.
+ * The eight top-level modules, in nav order.
  *
  * Screens are shared, not per role: one screen per job, with controls
  * appearing or vanishing with the viewer's permissions. There is no IT user
@@ -16,7 +16,13 @@ import { PERMISSIONS } from '../constants/index.js';
  * without a DOM.
  *
  * S-15 (/pto) is not here: the navigation map in list-of-screens.md nests it
- * under Leave & Balances, and it is reached from S-13.
+ * under Leaves & Balances, and it is reached from there.
+ *
+ * M-8 (/reports) is gone. The report builder's columns are now part of the
+ * attendance summary and the export is a button on it, so a separate module
+ * would be a second door to the same room — with the scope confusion that
+ * comes of two screens over one dataset. `report.build` still gates the
+ * export, and the annual summary lives at /attendance/annual.
  */
 export const NAVIGATION = Object.freeze([
   { id: 'M-2', label: 'Home', route: '/', permission: null },
@@ -40,7 +46,7 @@ export const NAVIGATION = Object.freeze([
   },
   {
     id: 'M-5',
-    label: 'Leave & Balances',
+    label: 'Leaves & Balances',
     route: '/leave',
     permission: PERMISSIONS.LEAVE_READ,
   },
@@ -55,14 +61,6 @@ export const NAVIGATION = Object.freeze([
     label: 'Settings',
     route: '/settings',
     permission: PERMISSIONS.CONFIG_READ,
-  },
-  {
-    id: 'M-8',
-    label: 'Reports',
-    route: '/reports',
-    // FR-8.1: restricted. The S-09 attendance read surface is granted to
-    // EMPLOYEE; this report builder beside it deliberately is not.
-    permission: PERMISSIONS.REPORT_BUILD,
   },
   {
     id: 'M-9',

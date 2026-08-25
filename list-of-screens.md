@@ -52,22 +52,24 @@ Three rules govern the whole inventory:
 ├── /users                 S-06  ✔   User roster               M-3
 │   ├── /users/[id]        S-07  P4  User detail
 │   └── /users/import      S-08  P4  Roster import
-├── /attendance            S-09  P5  Attendance overview       M-4
-│   ├── /attendance/entry  S-10  P5  Daily attendance grid
+├── /attendance            S-09  P5  Attendance summary        M-4
+│   ├── /attendance/daily  S-10  P5  Daily attendance (2 views)
+│   ├── /attendance/annual S-21  P6  Annual summary
 │   ├── /attendance/import S-11  P5  Attendance import
 │   └── /attendance/[userId]/[date]
 │                          S-12  P5  Day record detail
-├── /leave                 S-13  P5  Leave balances            M-5
+├── /leave                 S-13  P5  Person picker             M-5
 │   ├── /leave/[userId]/ledger
-│   │                      S-14  P5  Ledger and balance trace
+│   │                      S-14  P5  Balance history
 │   └── /pto               S-15  P6  PTO awards and CTO applications
 ├── /teams                 S-16  P4  Teams                     M-6
 │   └── /teams/[id]        S-17  P4  Team configuration
 ├── /settings              S-18  P4  Company configuration     M-7
 │   └── /settings/access   S-19  P4  Access control matrix
-├── /reports               S-20  P6  Report builder            M-8
-│   └── /reports/annual    S-21  P6  Annual summary
 └── /audit                 S-22  P4  Audit log                 M-9
+
+Retired, redirecting:  /reports → /attendance  ·  /reports/annual →
+/attendance/annual  ·  /attendance/entry → /attendance/daily
 
 /signin  S-01 ✔   ·   /403  S-02 ✔   ·   /404  S-03 ✔          M-1
 ```
@@ -216,38 +218,63 @@ without a dismissable overlay.
 
 ---
 
-### M-4 · Attendance
+### M-4 · Attendance & Leaves
 
-#### S-09 · Attendance overview · `P5`
+**Exactly three pages**: the summary below, daily attendance, and the balance history under M-5. `S-13`'s
+balances and `S-20`'s report columns were merged into `S-09`; the report builder screen is gone.
+
+#### S-09 · Attendance summary · `P5`
 
 - **Route** `/attendance`
-- **Purpose** Attendance statistics for every employee over a chosen date range. Read surface, filterable
-  down to a single person — including the viewer themselves.
-- **Access** `attendance.read`, seeded at `ALL` for every role per `FR-8.1`. Narrowing it to `SELF` on `S-19`
-  turns this into a personal view with no code change (MVP criterion 4).
-- **Spec** `FR-8.1`, `FR-2.4`, `FR-2.10`, `FR-5.6`, `FR-5.7`, `NFR-3`
-- **Columns** Present · absent · leave by type · WFH used · late days · short days · holiday-work days ·
-  PTO balance.
-- **Filters** Date range · team · employee · **just me** · include or exclude soft-deleted users.
+- **Purpose** One row per colleague over a chosen period: what the engine concluded, what the calendar
+  expected, and what every leave balance stands at. The merge of the old attendance overview, the leave
+  balances screen and the report builder.
+- **Access** `attendance.read`, seeded at `ALL` for every role per `FR-8.1`. The scope narrows the ROWS:
+  `SELF` sees their own, `TEAM` their team, `ALL` everyone — so narrowing it on `S-19` turns this into a
+  personal view with no code change (MVP criterion 4). `report.build` gates the export only.
+- **Spec** `FR-8.1`, `FR-2.4`, `FR-2.10`, `FR-5.6`, `FR-5.7`, `FR-3.9`, `FR-8.3`, `FR-8.5`, `NFR-3`
+- **Columns** In collapsible groups, thirty-two in all with three leave types. Name and code frozen ·
+  *Calendar*: working days · holidays · *Attendance*: present · absent · WFH used · late days · short days ·
+  holiday work · *Hours*: checked in · expected · approved leave · PTO balance · *per leave type*: opening ·
+  credited · availed · deductions · CTO applied · balance. Leave groups open collapsed to their balance.
+  WFH used carries the team's monthly quota beside it — `3 of 5` — but only over a month, since `BR-16`
+  caps it per month and a week against a monthly ceiling is not a ratio (`FR-5.5`).
+- **Filters** Weekly / monthly / custom, week starting Monday · team · colleague · **just me**. The period
+  and the collapsed set travel in the URL, so a view is a link.
 - **Behaviour** Untracked users are excluded from every total, and the exclusion is stated on screen rather
   than left silent (`FR-2.10`). A soft-deleted user's figures inside their employment period are unchanged
-  and marked *no longer active* (`FR-2.4`).
-- **Popups** `P-45`
+  and marked *no longer active* (`FR-2.4`). Expected hours are the shift held on each working day with
+  approved leave netted off; the leave netted off is its own column. Every balance links to the ledger that
+  produced it (`NFR-11`).
+- **Popups** `P-43` `P-45`
 - **States** Empty: a range with no records says so. Paged and virtualised (`DC-10`).
 
-#### S-10 · Daily attendance grid · `P5`
+#### S-10 · Daily attendance · `P5`
 
-- **Route** `/attendance/entry`
-- **Purpose** Enter and correct attendance for one team on one date. The write surface, built so a single
-  day's correction takes three clicks or fewer from `S-04` (`NFR-1`).
-- **Access** `attendance.write` at `ALL`.
-- **Spec** `FR-4.1`, `FR-4.9`, `FR-5.1`, `FR-5.2`, `NFR-1`
-- **Columns per user** Punches · worked duration · day type · day status · late minutes · deduction and the
+- **Route** `/attendance/daily`
+- **Purpose** Two views of the same days. **By date**: enter and correct attendance for one team on one date,
+  the write surface, built so a single day's correction takes three clicks or fewer from `S-04` (`NFR-1`).
+  **Day by day**: every date in a period for whoever is selected, read only, in the shape of the workbook it
+  replaces.
+- **Access** `attendance.read` at `ALL`. The by-date view needs `attendance.write` and is offered only to
+  those who hold it — it materialises the team's day records when it opens (`D-15`), so exactly one view is
+  rendered per request and a reader is never shown a tab that would answer 403.
+- **Spec** `FR-4.1`, `FR-4.8`, `FR-4.9`, `FR-5.1`, `FR-5.2`, `FR-2.12`, `NFR-1`
+- **Columns, by date** Punches · worked duration · day type · day status · late minutes · deduction and the
   rule that produced it · override marker.
-- **Behaviour** Untracked users do not appear — they receive no day records (`FR-2.10`). A day whose shift is
-  unknown shows an empty status and links to `P-12` (`FR-3.12`).
+- **Columns, day by day** Employee, spanning their block · day and date · check-in · check-out · total
+  hours · leave balance · leave used · leave awarded.
+- **Filters** By date: team · date. Day by day: weekly / monthly / custom · team · a multi-select of
+  colleagues within it. The view and the filters travel in the URL.
+- **Behaviour** Untracked users appear in neither — they receive no day records (`FR-2.10`). A day whose
+  shift is unknown shows an empty status and links to `P-12` (`FR-3.12`). The day-by-day view is continuous:
+  every date in the period has a row whether or not anything was recorded on it, since a view built only
+  from the records that exist cannot show a gap. Dates outside the employment period are marked rather than
+  shown as absence (`FR-2.12`). A punch is read in the timezone of the shift it belongs to (§7.2); a missing
+  counterpart says nothing rather than midnight (`FR-4.8`).
 - **Popups** `P-21` `P-22` `P-23` `P-24` `P-25` `P-46` `P-47`
-- **States** Empty: a date outside every user's employment period renders no rows and says why.
+- **States** Empty: a date outside every user's employment period renders no rows and says why. Day by day
+  with nobody selected says so rather than rendering a bare table.
 
 #### S-11 · Attendance import · `P5`
 
@@ -291,12 +318,16 @@ without a dismissable overlay.
 
 ### M-5 · Leave & Balances
 
-#### S-13 · Leave balances · `P5`
+#### S-13 · Person picker · `P5`
 
 - **Route** `/leave`
-- **Purpose** Typed leave balances per user, per month and per year. Every figure is replayed from the ledger,
-  never stored (`DC-4`).
-- **Access** `leave.read`, seeded at `ALL` per `FR-8.1`.
+- **Purpose** Choose a colleague, read their balance history. The typed balances that used to live here are
+  columns of `S-09` now, beside the attendance they explain.
+- **Access** `leave.read`, seeded at `ALL` per `FR-8.1`. A viewer whose scope is `SELF` never sees this
+  screen — `proxy.js` redirects them to their own `S-14`, since a list of one person exists only to be
+  clicked through.
+- **Popups** `P-19` — the cutover opening balance, `leave.write` only.
+- **Superseded columns, now on `S-09`**
 - **Spec** `FR-6.2`, `FR-6.5`, `FR-6.8`, `FR-6.9`, `FR-5.5`, `BR-12`, `BR-14`
 - **Columns** Per leave type: opening · credited · availed · automatic deductions · CTO applied · balance.
   Plus WFH quota and balance (`FR-5.5`), and paternity and maternity as separate typed entries that never
@@ -414,11 +445,14 @@ Holds the company-wide half of the `FR-6.4` list.
 
 ---
 
-### M-8 · Reports
+### Reports — merged into M-4
 
-#### S-20 · Report builder · `P6`
+`S-20`'s columns are part of `S-09`, its export is a button on that screen, and `S-21` moved to
+`/attendance/annual`. `report.build` survives as the permission gating the export and `/api/reports`.
 
-- **Route** `/reports`
+#### S-20 · Report builder · **retired**
+
+- **Route** `/reports` → redirects to `/attendance`
 - **Purpose** An attendance report for any date range, per user and per team, reproducing the columns the
   office administration team relies on today.
 - **Access** `report.build` at `ALL`. Restricted — explicitly **not** granted to `EMPLOYEE`, unlike the
@@ -436,7 +470,7 @@ Holds the company-wide half of the `FR-6.4` list.
 
 #### S-21 · Annual summary · `P6`
 
-- **Route** `/reports/annual`
+- **Route** `/attendance/annual`, reached from a row of `S-09`
 - **Purpose** One user's year, aggregating every month.
 - **Access** `attendance.read`, seeded at `ALL` per `FR-8.1` — readable for any colleague.
 - **Spec** `FR-8.4`, `FR-6.5`, `FR-3.9`, `FR-8.1`, MVP criterion 9

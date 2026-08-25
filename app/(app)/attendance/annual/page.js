@@ -1,7 +1,7 @@
 import Stack from '@mui/material/Stack';
 import { getYear } from 'date-fns';
+import { AnnualSummary } from '../../../../components/attendance/AnnualSummary.jsx';
 import { PageHeader } from '../../../../components/PageHeader.jsx';
-import { AnnualSummary } from '../../../../components/reports/AnnualSummary.jsx';
 import { listUsers } from '../../../../database.js';
 import { buildAnnualSummary } from '../../../../engine/reports.js';
 import { getSessionUser } from '../../../../session.js';

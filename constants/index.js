@@ -184,6 +184,39 @@ export const LEDGER_ENTRY_TYPE = Object.freeze({
   REVERSAL: 'REVERSAL',
 });
 
+/**
+ * The period a screen is filtered to. Weekly and monthly resolve their range
+ * from a single anchor date; custom carries both ends itself.
+ *
+ * An enum rather than three strings spelled out at each call site: the summary
+ * and the day-by-day view both read it out of the URL, and a typo in one of
+ * them would silently fall back to the default month instead of failing.
+ */
+export const PERIOD_MODE = Object.freeze({
+  WEEKLY: 'WEEKLY',
+  MONTHLY: 'MONTHLY',
+  CUSTOM: 'CUSTOM',
+});
+
+/**
+ * Page 2's two views. The by-date grid is an editing surface that materialises
+ * records when it opens (D-15); the day-by-day view is read only.
+ *
+ * Named here rather than spelled out at each call site because the page, its
+ * filters and `authz/routes.js` all have to agree on which one is showing, and
+ * a typo would silently render the wrong one.
+ */
+export const DAILY_VIEW = Object.freeze({
+  BY_DATE: 'BY_DATE',
+  DAY_BY_DAY: 'DAY_BY_DAY',
+});
+
+/**
+ * A week runs Monday to Sunday. `date-fns` defaults to Sunday, so every call
+ * that resolves a week passes this rather than relying on the default.
+ */
+export const WEEK_STARTS_ON = 1;
+
 /** FR-7.6: where a credit came from when no ladder row produced it. */
 export const MANUAL_GRANT = 'MANUAL_GRANT';
 
