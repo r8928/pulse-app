@@ -63,7 +63,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Hours checked in against hours expected, approved leave netted off and shown | Done |
 | WFH used against the team's monthly quota | Done — the ratio only over a month, since `BR-16` caps it per month |
 | Weekly / monthly / custom period filter, week starting Monday | Done — the period is in the URL, so a view is a link |
-| Day-by-day view: every date in a period, per colleague | Done — continuous, so a gap is visible |
+| Detailed report, read on screen without downloading | Done — a popup over the content area, sidebar and top bar still usable |
+| Day-by-day detail: every date in a period, per colleague | Done — continuous, so a gap is visible |
 | Balance history and the ledger trace (`S-14`) | Done — every figure replayed, never stored |
 | Day classification (`FR-5.x`) | Done — engine, ledger posting and both screens |
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done |
@@ -166,10 +167,15 @@ forgotten filter shows a colleague the whole company. That is
 `authz/rosterScope.js`, and it is why the report columns can sit on a screen
 `EMPLOYEE` reaches.
 
-**Only one view of `/attendance/daily` renders per request.** The by-date grid
-materialises a team's day records when it opens (`D-15`). A hidden tab is not
-allowed to do that on the way past, which is why the view lives in the URL
-rather than in component state.
+**`/attendance/daily` is a write surface, not a read one.** Opening it
+materialises a team's day records for that date (`D-15`), which is a write
+however it is reached — so it gates on `attendance.write` and is linked only
+for those who hold it. The detailed report any colleague may read is the popup
+on the summary, which gates on `attendance.read` like the screen it opens over.
+
+**The popup's rows come from the viewer's scope, never from its query.** It is
+a client component, so `/api/attendance/day-by-day` treats `userIds` as a
+preference underneath the scope ceiling and never as a way to raise it.
 
 **Dates go through `date-fns`.** No `new Date()` for parsing or arithmetic.
 

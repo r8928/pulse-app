@@ -4,6 +4,7 @@ import CalendarMonthOutlined from '@mui/icons-material/CalendarMonthOutlined';
 import DownloadOutlined from '@mui/icons-material/DownloadOutlined';
 import KeyboardArrowDown from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
+import TableViewOutlined from '@mui/icons-material/TableViewOutlined';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -34,6 +35,7 @@ import {
   visibleColumns,
 } from '../../utils/summaryColumns.js';
 import { EmptyState } from '../EmptyState.jsx';
+import { DetailedReportDialog } from './DetailedReportDialog.jsx';
 import { PeriodFilter } from './PeriodFilter.jsx';
 
 /**
@@ -63,6 +65,7 @@ export function AttendanceSummary({
 }) {
   const router = useRouter();
   const [exporting, setExporting] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const groups = summaryColumnGroups(leaveTypes);
   const collapsed = collapsedFromParam(filters.groups ?? null, groups);
@@ -202,8 +205,26 @@ export function AttendanceSummary({
                 </Button>
               ) : null}
 
-              {canExport ? (
-                <Stack direction='row' spacing={1} sx={{ ml: { md: 'auto' } }}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ ml: { md: 'auto' } }}
+              >
+                {/* Reading the detail is attendance.read, which anyone on this
+                    screen already holds. Producing a FILE of it is the
+                    restricted act, which is why the two downloads beside this
+                    are gated and this is not (FR-8.1). */}
+                <Button
+                  type='button'
+                  variant='contained'
+                  startIcon={<TableViewOutlined />}
+                  disabled={rows.length === 0}
+                  onClick={() => setDetailOpen(true)}
+                >
+                  View Detailed Report
+                </Button>
+
+                {canExport ? (
                   <Button
                     type='button'
                     variant='outlined'
@@ -211,18 +232,22 @@ export function AttendanceSummary({
                     disabled={exporting || rows.length === 0}
                     onClick={() => exportAs('xlsx')}
                   >
-                    Excel
+                    Download report in Excel
                   </Button>
+                ) : null}
+
+                {canExport ? (
                   <Button
                     type='button'
                     variant='outlined'
+                    startIcon={<DownloadOutlined />}
                     disabled={exporting || rows.length === 0}
                     onClick={() => exportAs('csv')}
                   >
-                    CSV
+                    Download report in CSV
                   </Button>
-                </Stack>
-              ) : null}
+                ) : null}
+              </Stack>
             </Stack>
           ) : null}
         </Stack>
@@ -258,11 +283,10 @@ export function AttendanceSummary({
                   ))}
                 </TableRow>
                 <TableRow>
-                  {columns.map((column, index) => (
+                  {columns.map((column) => (
                     <TableCell
                       key={column.key}
                       align={column.numeric ? 'right' : 'left'}
-                      sx={frozenCell(index, true)}
                     >
                       {column.label}
                     </TableCell>
@@ -273,11 +297,10 @@ export function AttendanceSummary({
               <TableBody>
                 {rows.map((row, rowIndex) => (
                   <TableRow key={row.userId} hover>
-                    {columns.map((column, index) => (
+                    {columns.map((column) => (
                       <TableCell
                         key={column.key}
                         align={column.numeric ? 'right' : 'left'}
-                        sx={frozenCell(index)}
                       >
                         <SummaryCell
                           column={column}
@@ -294,6 +317,13 @@ export function AttendanceSummary({
           </TableContainer>
         </Paper>
       )}
+
+      <DetailedReportDialog
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        period={period}
+        filters={filters}
+      />
 
       <Typography variant='caption' color='text.secondary'>
         Expected hours are the shift held on each working day, with approved
@@ -319,7 +349,7 @@ function GroupHeader({ group, collapsed, onToggle }) {
 
   if (!group.collapsible) {
     return (
-      <TableCell colSpan={span} sx={frozenGroupHeader(group)}>
+      <TableCell colSpan={span}>
         <Typography variant='metricLabel'>{group.label}</Typography>
       </TableCell>
     );
@@ -429,31 +459,14 @@ function SummaryCell({ column, row, value, period }) {
 }
 
 /**
- * The two identifying columns stay put while the rest scrolls sideways.
+ * Nothing is frozen, deliberately.
  *
- * Thirty-two columns do not fit an 834px tablet at any font size worth
- * reading, so the table scrolls rather than shrinking — and a reader four
- * columns to the right has to still know whose row they are on.
+ * Name and code were pinned so a reader scrolled far right still knew whose
+ * row they were on. On a phone that reasoning inverts: two pinned columns eat
+ * most of the viewport, leaving a sliver for the figures the reader came for,
+ * and the pinned cells need an opaque background of their own — which is what
+ * made those two headers a different colour from the rest of the row.
+ *
+ * They are ordinary columns now. The reader keeps their place by collapsing a
+ * group instead, which costs one click and no width at all.
  */
-const frozenCell = (index, inHeader = false) =>
-  index < 2
-    ? {
-        position: 'sticky',
-        left: index === 0 ? 0 : 200,
-        // The header has to win against a body cell frozen in the same
-        // column, or the two overlap as the table scrolls under it.
-        zIndex: inHeader ? 4 : 2,
-        backgroundColor: 'background.paper',
-        minWidth: index === 0 ? 200 : 140,
-      }
-    : undefined;
-
-const frozenGroupHeader = (group) =>
-  group.id === 'identity'
-    ? {
-        position: 'sticky',
-        left: 0,
-        zIndex: 5,
-        backgroundColor: 'background.paper',
-      }
-    : undefined;

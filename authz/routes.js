@@ -30,17 +30,19 @@ const ROUTE_RULES = [
     permission: PERMISSIONS.ATTENDANCE_IMPORT,
   },
   /**
-   * Page 2 gates on the READ permission, not the write one.
+   * Page 2 is the write surface: opening it materialises the team's day
+   * records for that date (D-15), which is a write however it is reached.
    *
-   * It holds two views. The by-date grid is an editing surface and is offered
-   * only to writers — the page itself decides that, because a reader given the
-   * tab would meet a 403 by clicking a thing they could see. The day-by-day
-   * view beside it is read only and is exactly what a colleague reads about
-   * themselves, so gating the path on attendance.write would shut them out of
-   * a screen that is theirs.
+   * The detailed report a colleague reads about themselves is not here — it
+   * is the popup on the summary, gated on attendance.read like the screen it
+   * opens over.
    */
   {
-    pattern: /^\/attendance\/(daily|annual)$/,
+    pattern: /^\/attendance\/daily$/,
+    permission: PERMISSIONS.ATTENDANCE_WRITE,
+  },
+  {
+    pattern: /^\/attendance\/annual$/,
     permission: PERMISSIONS.ATTENDANCE_READ,
   },
   {
@@ -148,6 +150,12 @@ const ROUTE_RULES = [
   {
     pattern: /^\/api\/attendance\/import\/(validate|commit|template)$/,
     permission: PERMISSIONS.ATTENDANCE_IMPORT,
+  },
+  // The detailed report behind the popup. Read only, so attendance.read —
+  // producing a FILE of it stays report.build, on /api/reports/export.
+  {
+    pattern: /^\/api\/attendance\/day-by-day$/,
+    permission: PERMISSIONS.ATTENDANCE_READ,
   },
   {
     pattern: /^\/api\/attendance\/[^/]+\/[^/]+\/override$/,

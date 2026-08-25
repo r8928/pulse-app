@@ -32,11 +32,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { ColorSchemeToggle } from './ColorSchemeToggle.jsx';
+import { DRAWER_WIDTH, RAIL_WIDTH } from './layout.js';
 import { visibleNavigation } from './navigation.js';
-
-/** The rail keeps orientation without spending a third of a tablet on it. */
-const RAIL_WIDTH = 72;
-const DRAWER_WIDTH = 232;
 
 /** A finger's target, per `DESIGN.md` § Layout. Row density is unaffected. */
 const TOUCH_TARGET = 44;

@@ -1674,8 +1674,12 @@ matters more than the fact that it did:
 | Page | Route | Was |
 | ---- | ----- | --- |
 | 1 Summary | `/attendance` | `S-09` overview + `S-13` balances + `S-20` report builder |
-| 2 Daily attendance | `/attendance/daily` | `S-10` grid, plus a new day-by-day view |
+| 2 Daily attendance | `/attendance/daily` | `S-10` grid, unchanged |
 | 3 Balance history | `/leave/<id>/ledger` | `S-14`, unchanged |
+
+The summary's second option is the **detailed report**, a popup rather than a
+page — see §25.3. It is not a fourth page and not a tab on page 2: one report,
+one home.
 
 **Why the summary is one table.** The three it replaces were never independent.
 A reader comparing absences against a leave balance had two tabs open and had
@@ -1690,12 +1694,12 @@ before the query runs — `authz/rosterScope.js` turns the viewer's
 the difference between reading about yourself and reading about everyone in
 the scope, not in a second screen; `report.build` still gates the export.
 
-**Why page 2 gates on the read permission.** It holds two views, and only one
-of them writes. The by-date grid materialises a team's day records when it
-opens (`D-15`), so it is offered only to writers and only one view is rendered
-per request — a hidden tab that touched a month on the way past would be a
-side effect nobody asked for. The day-by-day view beside it is read only and
-is what a colleague reads about themselves.
+**Why page 2 gates on the WRITE permission.** Opening it materialises a team's
+day records for that date (`D-15`), which is a write however it is reached. It
+is therefore linked only for those who hold `attendance.write` — a reader
+given the link would meet a 403 from a thing they could see. What a colleague
+reads about themselves is the detailed report on the summary, which gates on
+`attendance.read` like the screen it opens over.
 
 **Why the retired routes still resolve.** `/reports`, `/reports/annual` and
 `/attendance/entry` redirect rather than 404. A link somebody has already sent
@@ -1718,8 +1722,8 @@ old link to a page they may read.
 6. **`S-11` Excel import**: upload → confirm date format → preview → atomic
    commit.
 7. **Day overrides** (`P-23`, `P-24`, `P-25`).
-8. **Day-by-day view**: every date in a period for whoever is selected, read
-   only. Continuous by construction — see §25.4.
+8. **Detailed report** (popup): every date in a period for whoever the summary
+   reaches, read only. Continuous by construction — see §25.3.
 9. **Export** (`P-43`): the summary as currently filtered, `report.build`.
 
 ### 25.2 Contracts
@@ -1747,12 +1751,35 @@ later would put the day and the balance in disagreement.
 `attendance.write` rather than the read permission — it is `D-15`'s single
 bounded call, and creating records is a write however it is reached.
 
-### 25.3 The day-by-day view
+### 25.3 The detailed report
 
-`engine/dayByDay.js`, in the shape of the workbook it replaces: one block per
-colleague, one row per date, the name spanning the block as a merged cell does.
-Columns: day and date, check-in, check-out, total hours, leave balance, leave
-used, leave awarded.
+`engine/dayByDay.js` behind `GET /api/attendance/day-by-day`, shown in a popup
+over the summary — in the shape of the workbook it replaces: one block per
+colleague, one row per date. Columns: day and date, check-in, check-out, total
+hours, leave balance, leave used, leave awarded.
+
+**A popup, not a page.** The reader wants the detail of the table they are
+already looking at, so it opens on the summary's own period and filters and the
+two cannot disagree. It covers the CONTENT AREA only — the sidebar and top bar
+stay usable behind it, which is what `components/layout.js` exists for: the
+widths the shell sizes its navigation with are the widths the overlay
+subtracts, and one copy of that arithmetic cannot drift from the other.
+
+**Fetched on open, not rendered with the page.** A month of a whole team is a
+large read, and paying for it on every visit to the summary — including the
+visits where nobody opens it — is a cost the reader never asked for.
+
+**The rows are chosen from the viewer's scope, never from the query.** The
+caller is a client component, so `userIds` narrows what the scope already
+allows and can never widen it. A handler trusting that parameter would hand the
+whole company to anyone willing to edit a query string, which is the record
+half of `FR-1.2` skipped rather than enforced.
+
+**The name is a heading, not a merged cell.** The workbook merges it down the
+block; a cell spanning thirty rows is unreadable on a phone and unreachable to
+a screen reader. The heading says the same thing once, where a reader looks
+first. Gridlines, a filled header row and banded rows carry the rest of the
+spreadsheet's grammar, because recognising the format is most of reading it.
 
 **Continuous by construction.** Every date in the period gets a row whether or
 not anything was recorded on it. A view assembled only from the records that

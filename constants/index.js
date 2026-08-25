@@ -199,19 +199,6 @@ export const PERIOD_MODE = Object.freeze({
 });
 
 /**
- * Page 2's two views. The by-date grid is an editing surface that materialises
- * records when it opens (D-15); the day-by-day view is read only.
- *
- * Named here rather than spelled out at each call site because the page, its
- * filters and `authz/routes.js` all have to agree on which one is showing, and
- * a typo would silently render the wrong one.
- */
-export const DAILY_VIEW = Object.freeze({
-  BY_DATE: 'BY_DATE',
-  DAY_BY_DAY: 'DAY_BY_DAY',
-});
-
-/**
  * A week runs Monday to Sunday. `date-fns` defaults to Sunday, so every call
  * that resolves a week passes this rather than relying on the default.
  */

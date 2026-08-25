@@ -77,13 +77,12 @@ describe('requiredPermissionFor', () => {
     );
   });
 
-  it('gates the daily attendance page on attendance read, not write', () => {
-    // It holds two views. The by-date grid is a writer's surface and the page
-    // itself offers it only to writers; the day-by-day view beside it is what
-    // a colleague reads about themselves. Gating the PATH on the write
-    // permission would shut them out of a screen that is theirs.
+  it('gates the daily attendance page on attendance write', () => {
+    // Opening it materialises the team's day records for that date (D-15),
+    // which is a write however it is reached. The detailed report a colleague
+    // reads about themselves is the popup on the summary, not this page.
     expect(requiredPermissionFor('/attendance/daily')).toBe(
-      PERMISSIONS.ATTENDANCE_READ,
+      PERMISSIONS.ATTENDANCE_WRITE,
     );
   });
 
@@ -174,6 +173,14 @@ describe('requiredPermissionFor', () => {
     expect(requiredPermissionFor('/reports')).toBe(null);
     expect(requiredPermissionFor('/reports/annual')).toBe(null);
     expect(requiredPermissionFor('/attendance/entry')).toBe(null);
+  });
+
+  it('gates the detailed report on attendance read, not report build', () => {
+    // Reading the detail is what FR-8.1 grants every colleague; producing a
+    // file of it is the restricted act, and that is the export route.
+    expect(requiredPermissionFor('/api/attendance/day-by-day')).toBe(
+      PERMISSIONS.ATTENDANCE_READ,
+    );
   });
 
   it('gates the audit log on audit read', () => {

@@ -1,5 +1,3 @@
-import { DAILY_VIEW } from './constants/index.js';
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // No `eslint` key: Next 16 removed it. Linting is Biome's job, run separately
@@ -32,7 +30,7 @@ const nextConfig = {
       },
       {
         source: '/attendance/entry',
-        destination: `/attendance/daily?view=${DAILY_VIEW.BY_DATE}`,
+        destination: '/attendance/daily',
         permanent: false,
       },
     ];
