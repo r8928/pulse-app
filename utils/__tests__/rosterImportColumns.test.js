@@ -6,6 +6,7 @@ import {
   EMPLOYEE_NAME_COLUMN,
   EMPLOYMENT_TYPE_COLUMN,
   LOGIN_ENABLED_COLUMN,
+  PHONE_COLUMN,
   ROLE_COLUMN,
   SHEET_COLUMNS,
   TRACKED_COLUMN,
@@ -48,6 +49,7 @@ describe('SHEET_COLUMNS', () => {
     expect(SHEET_COLUMNS.map((column) => column.name)).toEqual([
       EMPLOYEE_CODE_COLUMN,
       EMPLOYEE_NAME_COLUMN,
+      PHONE_COLUMN,
       WORK_EMAIL_COLUMN,
       EMPLOYMENT_TYPE_COLUMN,
       ROLE_COLUMN,
@@ -183,5 +185,44 @@ describe('validateRosterRows with the optional columns', () => {
     ]);
 
     expect(rejected[0].reason).toMatch(/no employee code/i);
+  });
+});
+
+/**
+ * The phone number, which the sheet may carry and need not.
+ *
+ * It is the one optional field with no shape to check beyond being written
+ * down: numbers arrive as `+92 300 1234567`, `0300-1234567` and as a typed
+ * Excel number that loses its leading zero. Rejecting any of those would be
+ * inventing a format the company has never agreed on, so whatever is in the
+ * cell is what is stored.
+ */
+describe('the phone column', () => {
+  it('reads a number the sheet carries', () => {
+    const { accepted } = validate([row({ [PHONE_COLUMN]: '+92 300 1234567' })]);
+
+    expect(accepted[0].phone).toBe('+92 300 1234567');
+  });
+
+  it('leaves it empty rather than outstanding when the cell is blank', () => {
+    // Unlike a team or a shift, this is genuinely optional: `S-08` step 2 must
+    // not hold the commit open waiting for a number nobody has.
+    const { accepted } = validate([row()]);
+
+    expect(accepted[0].phone).toBe('');
+  });
+
+  it('keeps a number Excel typed as one, leading zero and all', () => {
+    // A typed cell arrives as 3001234567 with the zero gone. Storing the
+    // digits it does have beats rejecting a row over Excel's formatting.
+    const { accepted } = validate([row({ [PHONE_COLUMN]: 3001234567 })]);
+
+    expect(accepted[0].phone).toBe('3001234567');
+  });
+
+  it('never rejects a row over the phone number', () => {
+    const { rejected } = validate([row({ [PHONE_COLUMN]: 'ext. 402' })]);
+
+    expect(rejected).toHaveLength(0);
   });
 });

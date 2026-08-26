@@ -26,6 +26,12 @@ import { ROLES, UNASSIGNED } from '../constants/index.js';
 /** The order both shapes present, and the words both use. */
 export const ROSTER_DETAIL_FIELDS = Object.freeze([
   { key: 'workEmail', label: 'Work email' },
+  /**
+   * Answerable here, never outstanding. `REQUIRED_DETAILS` deliberately omits
+   * it, so a blank phone number never holds the go-live commit open — it is a
+   * contact detail nobody is required to hold, not a field the engine reads.
+   */
+  { key: 'phone', label: 'Phone' },
   { key: 'teamId', label: 'Team' },
   { key: 'employmentType', label: 'Employment type' },
   { key: 'role', label: 'Role' },
@@ -116,6 +122,18 @@ export function RosterDetailControl({
           // address elides from the left, so a narrow box shows the domain and
           // hides the person.
           sx={widthFor(layout, 260)}
+          slotProps={shrink}
+          {...naming}
+        />
+      );
+
+    case 'phone':
+      return (
+        <TextField
+          value={row.phone}
+          onChange={onChange}
+          placeholder='+92 300 1234567'
+          sx={widthFor(layout, 180)}
           slotProps={shrink}
           {...naming}
         />

@@ -94,6 +94,10 @@ export function UserRoster({
                 <TableCell>Name</TableCell>
                 <TableCell>Employee code</TableCell>
                 <TableCell sx={hideBelow('sm')}>Role</TableCell>
+                {/* Administration, not a directory: the whole screen is
+                    reachable only by a viewer whose user.read reaches every
+                    record, so there is no per-column gate to add here. */}
+                <TableCell sx={hideBelow('lg')}>Phone</TableCell>
                 <TableCell sx={hideBelow('lg')}>Employment type</TableCell>
                 <TableCell sx={hideBelow('md')}>Date of joining</TableCell>
                 <TableCell sx={hideBelow('lg')}>Date of leaving</TableCell>
@@ -110,6 +114,11 @@ export function UserRoster({
                     <Typography variant='mono'>{user.employeeCode}</Typography>
                   </TableCell>
                   <TableCell sx={hideBelow('sm')}>{user.role}</TableCell>
+                  <TableCell sx={hideBelow('lg')}>
+                    {user.phone ? (
+                      <Typography variant='mono'>{user.phone}</Typography>
+                    ) : null}
+                  </TableCell>
                   <TableCell sx={hideBelow('lg')}>
                     {user.employmentType}
                   </TableCell>

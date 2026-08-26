@@ -15,6 +15,7 @@ import {
   setUserFlag,
   softDeleteTenure,
   updateTenure,
+  updateUser,
   ValidationError,
 } from '../database.js';
 import { useTestDatabase } from '../test/mongo.js';
@@ -438,5 +439,64 @@ describe('tenures', () => {
         actor,
       ),
     ).rejects.toThrow(StaleWriteError);
+  });
+});
+
+/**
+ * The phone number: a contact detail, not a policy input.
+ *
+ * Nothing in the engine reads it and no permission depends on it. It is
+ * optional in the same sense a work email is — support staff hold none — so
+ * the one thing that must be true is that leaving it out is never an error.
+ */
+describe('a user’s phone number', () => {
+  useTestDatabase();
+
+  it('stores the number when one is given', async () => {
+    const alice = await user({ phone: '+92 300 1234567' });
+
+    expect(alice.phone).toBe('+92 300 1234567');
+  });
+
+  it('stores null rather than an empty string when there is none', async () => {
+    // '' and "they have no phone" are different facts. Storing the first
+    // would leave every screen printing an empty value as though it were one.
+    const alice = await user();
+
+    expect(alice.phone).toBe(null);
+  });
+
+  it('treats an emptied field as having none', async () => {
+    const alice = await user({ phone: '0300-1234567' });
+    const cleared = await updateUser(
+      String(alice._id),
+      { phone: '' },
+      alice.version,
+      actor,
+    );
+
+    expect(cleared.phone).toBe(null);
+  });
+
+  it('is editable without disturbing anything else on the record', async () => {
+    const alice = await user();
+    const edited = await updateUser(
+      String(alice._id),
+      { phone: '0300-1234567' },
+      alice.version,
+      actor,
+    );
+
+    expect(edited.phone).toBe('0300-1234567');
+    expect(edited.employeeCode).toBe('EMP-001');
+    expect(edited.role).toBe(ROLES.EMPLOYEE);
+  });
+
+  it('refuses a number that is not written down as text', async () => {
+    // A number typed into the form as a number has already lost its leading
+    // zero. Rejecting it is better than storing 3001234567 for 03001234567.
+    await expect(user({ phone: 3001234567 })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
   });
 });

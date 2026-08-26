@@ -1,10 +1,8 @@
+import { SEED_GRANTS } from '../authz/seedGrants.js';
 import {
-  ALL_PERMISSIONS,
   EMPLOYMENT_TYPE_SEEDS,
   HOLIDAY_TYPE,
-  PERMISSIONS,
   ROLES,
-  SCOPES,
 } from '../constants/index.js';
 import {
   COLLECTIONS,
@@ -68,56 +66,6 @@ const CONSUMER_DOMAINS = new Set([
 ]);
 
 const usingConsumerDomain = CONSUMER_DOMAINS.has(workspaceDomain);
-
-/**
- * FR-1.3: OFFICE_ADMIN holds every permission the system defines at ALL, and
- * its set is a permanent superset. Generated from the catalog rather than
- * listed, so a permission added later is granted automatically.
- */
-const officeAdminGrants = ALL_PERMISSIONS.map((permission) => ({
-  role: ROLES.OFFICE_ADMIN,
-  permission,
-  scope: SCOPES.ALL,
-}));
-
-/** FR-2.1: the user lifecycle only. That is the whole of IT's authority. */
-const itGrants = [
-  PERMISSIONS.USER_READ,
-  PERMISSIONS.USER_WRITE,
-  PERMISSIONS.USER_IMPORT,
-].map((permission) => ({ role: ROLES.IT, permission, scope: SCOPES.ALL }));
-
-/**
- * FR-6.7: the MANAGER leave-approval permission and its TEAM scope are seeded
- * in Phase 1 and visible on S-19 from day one, even though the request and
- * approval workflow ships in Phase 2.
- */
-const managerGrants = [
-  { permission: PERMISSIONS.USER_READ, scope: SCOPES.ALL },
-  { permission: PERMISSIONS.ATTENDANCE_READ, scope: SCOPES.ALL },
-  { permission: PERMISSIONS.LEAVE_READ, scope: SCOPES.ALL },
-  { permission: PERMISSIONS.PTO_READ, scope: SCOPES.ALL },
-  { permission: PERMISSIONS.LEAVE_APPROVE, scope: SCOPES.TEAM },
-].map((grant) => ({ role: ROLES.MANAGER, ...grant }));
-
-/**
- * FR-8.1: EMPLOYEE reads attendance company-wide, as everyone could in the old
- * workbook — expressed as a grant at ALL so it can be narrowed on S-19 with no
- * code change, which is MVP criterion 4.
- *
- * FR-8.2: read only without exception. No write, import, approve, report.build
- * or exceptions.read appears here.
- */
-const employeeGrants = [
-  PERMISSIONS.USER_READ,
-  PERMISSIONS.ATTENDANCE_READ,
-  PERMISSIONS.LEAVE_READ,
-  PERMISSIONS.PTO_READ,
-].map((permission) => ({
-  role: ROLES.EMPLOYEE,
-  permission,
-  scope: SCOPES.ALL,
-}));
 
 /**
  * BR-9 seed profile B, as implemented in the old workbook and converted to
@@ -442,11 +390,15 @@ async function seed() {
   );
 
   console.warn('Seeding permission grants...');
-  await upsertSeed(
-    COLLECTIONS.PERMISSION_GRANTS,
-    [...officeAdminGrants, ...itGrants, ...managerGrants, ...employeeGrants],
-    ['role', 'permission'],
-  );
+  /**
+   * `$set` covers the scope, so re-running the seed brings an existing
+   * database current — a grant narrowed in `authz/seedGrants.js` takes effect
+   * here without a migration script.
+   */
+  await upsertSeed(COLLECTIONS.PERMISSION_GRANTS, SEED_GRANTS, [
+    'role',
+    'permission',
+  ]);
 
   console.warn('Seeding employment types...');
   await upsertSeed(

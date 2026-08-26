@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { PERMISSIONS } from '../../constants/index.js';
-import { isPublicPath, requiredPermissionFor } from '../routes.js';
+import {
+  isPublicPath,
+  requiredPermissionFor,
+  userIdInPath,
+} from '../routes.js';
 
 /**
  * The endpoint half of FR-1.2, expressed as data. proxy.js asks this which
@@ -191,5 +195,51 @@ describe('requiredPermissionFor', () => {
 
   it('ignores a trailing slash rather than failing to match', () => {
     expect(requiredPermissionFor('/users/')).toBe(PERMISSIONS.USER_READ);
+  });
+});
+
+/**
+ * The People module is administration, so a viewer whose `user.read` does not
+ * reach the whole roster may read exactly one record: their own.
+ *
+ * That is a guard, not a hidden link. `proxy.js` compares the id this returns
+ * against the viewer's own and answers 404 for anybody else's — 404 rather
+ * than 403, so a hand-typed id cannot be used to discover who exists (`S-03`).
+ */
+describe('userIdInPath', () => {
+  it('reads the id out of a profile path', () => {
+    expect(userIdInPath('/users/abc123')).toBe('abc123');
+  });
+
+  it('reads the id out of the API route behind that screen', () => {
+    expect(userIdInPath('/api/users/abc123')).toBe('abc123');
+  });
+
+  it('reads the id out of a lifecycle sub-route', () => {
+    // Every one of these acts on ONE user, so each must be checked against the
+    // viewer's own id rather than waved through for lacking a bare shape.
+    expect(userIdInPath('/api/users/abc123/soft-delete')).toBe('abc123');
+    expect(userIdInPath('/api/users/abc123/role')).toBe('abc123');
+    expect(userIdInPath('/users/abc123/')).toBe('abc123');
+  });
+
+  it('names no id for the collection itself', () => {
+    expect(userIdInPath('/users')).toBe(null);
+    expect(userIdInPath('/api/users')).toBe(null);
+  });
+
+  it('does not mistake the roster import for a user id', () => {
+    // `/users/import` is the go-live migration, gated on user.import in its
+    // own rule. Reading `import` as an id here would compare it against the
+    // viewer's own and 404 the screen out from under an administrator.
+    expect(userIdInPath('/users/import')).toBe(null);
+    expect(userIdInPath('/api/users/import')).toBe(null);
+    expect(userIdInPath('/api/users/import/template')).toBe(null);
+  });
+
+  it('names no id for a path outside the People module', () => {
+    expect(userIdInPath('/attendance/abc123')).toBe(null);
+    expect(userIdInPath('/leave/abc123/ledger')).toBe(null);
+    expect(userIdInPath('/')).toBe(null);
   });
 });

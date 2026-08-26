@@ -43,6 +43,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | `proxy.js` endpoint check, `guard.js` record check | Done |
 | App shell, every screen routed and gated | Done |
 | People: roster, detail, create, soft delete, restore | Done |
+| People is admin-only, and a colleague reaches only their own record | Done — `proxy.js` redirects `/users` to their own profile and 404s anybody else's |
+| Optional phone number: form, profile, roster column, import sheet | Done — never required, stored exactly as written |
 | Company config: employment types, authorised domains (`S-18`) | Done |
 | Access control matrix, effective next request (`S-19`) | Done |
 | Teams, with the manager and member count (`S-16`) | Done |
@@ -63,6 +65,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Hours checked in against hours expected, approved leave netted off and shown | Done |
 | WFH used against the team's monthly quota | Done — the ratio only over a month, since `BR-16` caps it per month |
 | Weekly / monthly / custom period filter, week starting Monday | Done — the period is in the URL, so a view is a link |
+| Summary opens on "Just me" for a colleague and "Everyone" for an admin | Done — a default, not a limit; either can switch |
+| "Include colleagues who have left", admin-only, off by default | Done — `FR-2.4` keeps their figures readable when it is on |
 | Detailed report, read on screen without downloading | Done — a popup over the content area, sidebar and top bar still usable |
 | Day-by-day detail: every date in a period, per colleague | Done — continuous, so a gap is visible |
 | Balance history and the ledger trace (`S-14`) | Done — every figure replayed, never stored |

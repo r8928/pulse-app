@@ -1,3 +1,4 @@
+import { isAdmin } from '../authz/admin.js';
 import { PERMISSIONS } from '../constants/index.js';
 
 /**
@@ -10,6 +11,12 @@ import { PERMISSIONS } from '../constants/index.js';
  * `permission: null` means any signed-in user reaches it. Everything else is
  * gated on a permission stored as data, so moving a grant on S-19 changes the
  * navigation on the next request with no code change (FR-1.2).
+ *
+ * `adminOnly` narrows that further: the permission has to be held at ALL, not
+ * merely held. Only People carries it. The module is administration rather
+ * than a staff directory — the whole user lifecycle, and the phone numbers —
+ * and a colleague reaches their own record directly, never through the list.
+ * See `authz/admin.js` for why the test is a scope and not a role name.
  *
  * Data only, deliberately — no React and no icon imports. The shell maps a
  * route to its icon; keeping that out of here lets the gating logic be tested
@@ -37,6 +44,7 @@ export const NAVIGATION = Object.freeze([
     label: 'People',
     route: '/users',
     permission: PERMISSIONS.USER_READ,
+    adminOnly: true,
   },
   {
     id: 'M-4',
@@ -79,7 +87,10 @@ export const NAVIGATION = Object.freeze([
  */
 export function visibleNavigation(permissions) {
   const held = permissions ?? {};
-  return NAVIGATION.filter(
-    (item) => item.permission === null || Boolean(held[item.permission]),
-  );
+
+  return NAVIGATION.filter((item) => {
+    if (item.permission === null) return true;
+    if (!held[item.permission]) return false;
+    return item.adminOnly ? isAdmin(held) : true;
+  });
 }

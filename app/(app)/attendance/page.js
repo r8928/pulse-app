@@ -1,6 +1,7 @@
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
+import { isAdmin } from '../../../authz/admin.js';
 import { rosterFiltersFor } from '../../../authz/rosterScope.js';
 import { AttendanceSummary } from '../../../components/attendance/AttendanceSummary.jsx';
 import { PageHeader } from '../../../components/PageHeader.jsx';
@@ -8,6 +9,7 @@ import { PERMISSIONS } from '../../../constants/index.js';
 import { listTeams, listUsers } from '../../../database.js';
 import { buildAttendanceSummary } from '../../../engine/reports.js';
 import { getSessionUser } from '../../../session.js';
+import { attendanceViewFrom } from '../../../utils/attendanceView.js';
 import { periodFromSearchParams } from '../../../utils/period.js';
 
 /**
@@ -30,10 +32,22 @@ export default async function AttendanceSummaryPage({ searchParams }) {
   const viewer = await getSessionUser();
 
   const period = periodFromSearchParams(params);
+  const admin = isAdmin(viewer.permissions);
+
+  /**
+   * Which rows the viewer is shown first, and whether former colleagues are
+   * among them. Both are read off the URL and neither widens what the scope
+   * below then allows — `rosterFiltersFor` still has the last word.
+   */
+  const { view, includeLeft, requested } = attendanceViewFrom(params, {
+    admin,
+    viewerId: viewer?.userId ?? null,
+  });
+
   const scoped = rosterFiltersFor(
     viewer.permissions[PERMISSIONS.ATTENDANCE_READ],
     viewer,
-    { teamId: params?.teamId, userId: params?.userId },
+    requested,
   );
 
   const [summary, teams, roster] = await Promise.all([
@@ -42,9 +56,10 @@ export default async function AttendanceSummaryPage({ searchParams }) {
       to: period.to,
       teamId: scoped.teamId,
       userId: scoped.userId,
+      includeDeleted: includeLeft,
     }),
     listTeams({ includeDeleted: false, pageSize: 200 }),
-    listUsers({ includeDeleted: true, pageSize: 500 }),
+    listUsers({ includeDeleted: includeLeft, pageSize: 500 }),
   ]);
 
   /**
@@ -95,10 +110,13 @@ export default async function AttendanceSummaryPage({ searchParams }) {
         leaveTypes={leaveTypes}
         period={period}
         filters={{
-          teamId: params?.teamId ?? '',
-          userId: params?.userId ?? '',
+          teamId: requested.teamId ?? '',
+          userId: requested.userId ?? '',
           groups: params?.groups ?? null,
         }}
+        view={view}
+        includeLeft={includeLeft}
+        isAdmin={admin}
         untrackedCount={summary.untrackedCount}
         canExport={Boolean(viewer.permissions[PERMISSIONS.REPORT_BUILD])}
         canFilterPeople={scoped.canFilterPeople}

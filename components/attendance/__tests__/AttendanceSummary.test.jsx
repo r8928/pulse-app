@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PERIOD_MODE } from '../../../constants/index.js';
+import { PERIOD_MODE, SCOPES } from '../../../constants/index.js';
 import { AttendanceSummary } from '../AttendanceSummary.jsx';
 
 /**
@@ -86,6 +86,9 @@ const props = {
     to: '2026-08-31',
   },
   filters: { teamId: '', userId: '', groups: null },
+  view: SCOPES.ALL,
+  includeLeft: false,
+  isAdmin: true,
   untrackedCount: 2,
   canExport: true,
   canFilterPeople: true,
@@ -284,5 +287,140 @@ describe('AttendanceSummary', () => {
     expect(
       screen.getByRole('link', { name: /open aisha khan's year/i }),
     ).toHaveAttribute('href', expect.stringContaining('/attendance/annual'));
+  });
+});
+
+/**
+ * Which rows the reader is shown first, and who may change it.
+ *
+ * The toggle is a real URL value rather than the absence of a colleague
+ * filter: left implicit, switching AWAY from your own row would send an empty
+ * `userId`, the page default would fire again, and the control would appear
+ * not to work.
+ */
+describe('AttendanceSummary — view scope', () => {
+  beforeEach(() => {
+    push.mockClear();
+  });
+
+  it('shows a non-admin sitting on their own row', () => {
+    render(<AttendanceSummary {...props} view={SCOPES.SELF} isAdmin={false} />);
+
+    expect(screen.getByRole('button', { name: /just me/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('shows an admin sitting on everyone', () => {
+    render(<AttendanceSummary {...props} />);
+
+    expect(screen.getByRole('button', { name: /everyone/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('lets a non-admin widen to everyone, since FR-8.1 still reaches there', async () => {
+    render(<AttendanceSummary {...props} view={SCOPES.SELF} isAdmin={false} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /everyone/i }));
+
+    expect(push).toHaveBeenCalledWith(
+      expect.stringContaining(`view=${SCOPES.ALL}`),
+    );
+  });
+
+  it('lets an admin narrow to themselves', async () => {
+    render(<AttendanceSummary {...props} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /just me/i }));
+
+    expect(push).toHaveBeenCalledWith(
+      expect.stringContaining(`view=${SCOPES.SELF}`),
+    );
+  });
+
+  it('hides the team and colleague pickers while the view is one person', () => {
+    // They would contradict the toggle: a colleague chosen under "Just me" is
+    // a filter that cannot apply.
+    render(<AttendanceSummary {...props} view={SCOPES.SELF} isAdmin={false} />);
+
+    expect(screen.queryByLabelText(/^team$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^colleague$/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps the detailed report reachable under either view', () => {
+    render(<AttendanceSummary {...props} view={SCOPES.SELF} isAdmin={false} />);
+
+    expect(
+      screen.getByRole('button', { name: /view detailed report/i }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('AttendanceSummary — colleagues who have left', () => {
+  beforeEach(() => {
+    push.mockClear();
+  });
+
+  it('offers an admin the choice', () => {
+    render(<AttendanceSummary {...props} />);
+
+    expect(
+      screen.getByRole('checkbox', { name: /colleagues who have left/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('withholds the choice from everybody else', () => {
+    render(<AttendanceSummary {...props} isAdmin={false} />);
+
+    expect(
+      screen.queryByRole('checkbox', { name: /colleagues who have left/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('puts the answer in the URL, so the view stays a link', async () => {
+    render(<AttendanceSummary {...props} />);
+
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /colleagues who have left/i }),
+    );
+
+    expect(push).toHaveBeenCalledWith(
+      expect.stringContaining('includeLeft=true'),
+    );
+  });
+});
+
+describe('AttendanceSummary — profile links', () => {
+  it('links a colleague to their profile for an admin', () => {
+    render(<AttendanceSummary {...props} />);
+
+    expect(screen.getByRole('link', { name: 'Bilal Ahmed' })).toHaveAttribute(
+      'href',
+      '/users/u2',
+    );
+  });
+
+  it('names a colleague without linking them for everybody else', () => {
+    // A non-admin reaches nobody's profile but their own, so the link would
+    // lead to a 404 (proxy.js). Naming them without linking is the honest
+    // version of what they may do.
+    render(<AttendanceSummary {...props} isAdmin={false} />);
+
+    expect(
+      screen.queryByRole('link', { name: 'Bilal Ahmed' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Bilal Ahmed')).toBeInTheDocument();
+  });
+
+  it('still links a non-admin to their own profile, which they may read', () => {
+    render(<AttendanceSummary {...props} isAdmin={false} />);
+
+    expect(screen.getByRole('link', { name: 'Aisha Khan' })).toHaveAttribute(
+      'href',
+      '/users/u1',
+    );
   });
 });

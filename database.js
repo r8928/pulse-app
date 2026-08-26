@@ -170,6 +170,16 @@ export const userInputSchema = z.object({
   fullName: z.string().trim().min(1, 'Full name is required'),
   employeeCode: z.string().trim().min(1, 'Employee code is required'),
   workEmail: z.email().nullable().optional(),
+  /**
+   * A contact detail, stored exactly as it is written.
+   *
+   * No shape is checked beyond it being text. Numbers arrive as
+   * `+92 300 1234567`, as `0300-1234567` and as a bare extension, and there is
+   * no format the company has agreed on — validating one here would be
+   * inventing it. Nothing in the engine reads this and no permission depends
+   * on it, so a wrong number costs a phone call, not an access decision.
+   */
+  phone: z.string().trim().max(40).nullable().optional(),
   teamId: z.string().nullable().optional(),
   employmentType: z.string().min(1, 'Employment type is required'),
   tracked: z.boolean(),
@@ -848,6 +858,9 @@ export async function createUser(input, actor, companyId = DEFAULT_COMPANY_ID) {
   const doc = {
     ...data,
     workEmail: data.workEmail ? data.workEmail.toLowerCase() : null,
+    // '' means "they have no phone", which is not the same fact as an empty
+    // string and must not be stored as one — the same rule work email takes.
+    phone: data.phone || null,
     teamId: data.teamId ?? null,
     shiftId: data.shiftId ?? null,
     dateOfJoining,
@@ -931,6 +944,8 @@ export async function updateUser(
 
   const data = parse(userInputSchema.partial(), patch);
   if (data.workEmail) data.workEmail = data.workEmail.toLowerCase();
+  // Clearing the field means they have no number, not that they have ''.
+  if (data.phone === '') data.phone = null;
 
   const after = await updateWithVersion(
     COLLECTIONS.USERS,
@@ -1886,6 +1901,7 @@ export async function commitRosterImport(
         const doc = {
           ...data,
           workEmail: data.workEmail ? data.workEmail.toLowerCase() : null,
+          phone: data.phone || null,
           teamId: data.teamId ?? null,
           shiftId: data.shiftId ?? null,
           dateOfJoining,

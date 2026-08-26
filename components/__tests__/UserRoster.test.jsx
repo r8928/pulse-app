@@ -21,6 +21,7 @@ const users = [
     employmentType: 'PERMANENT',
     dateOfJoining: '2024-02-01',
     dateOfLeaving: null,
+    phone: '+92 300 1234567',
     deletedAt: null,
   },
 ];
@@ -71,5 +72,35 @@ describe('UserRoster', () => {
       screen.getAllByRole('link', { name: /import from workbook/i }),
     ).toHaveLength(2);
     expect(screen.queryByText(/npm run seed/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The phone numbers.
+ *
+ * There is no per-column permission behind this and there deliberately is not
+ * one: the whole screen is administration. `proxy.js` sends a colleague whose
+ * `user.read` reaches only themselves to their own profile and answers 404 for
+ * everybody else's, so the only people who ever render this table are the ones
+ * allowed to read every number in it.
+ */
+describe('UserRoster — phone numbers', () => {
+  it('shows the number the record carries', () => {
+    render(<UserRoster {...props} />);
+
+    expect(
+      screen.getByRole('columnheader', { name: /phone/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('+92 300 1234567')).toBeInTheDocument();
+  });
+
+  it('leaves the cell empty for a colleague who has none', () => {
+    // Optional means optional. An em dash or "unknown" would read as a fact
+    // about them rather than as an unanswered field.
+    const noPhone = [{ ...users[0], phone: null }];
+    render(<UserRoster {...props} users={noPhone} />);
+
+    expect(screen.queryByText('+92 300 1234567')).not.toBeInTheDocument();
+    expect(screen.getByText('Amara Okafor')).toBeInTheDocument();
   });
 });

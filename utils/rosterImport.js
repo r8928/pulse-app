@@ -34,6 +34,7 @@ export const SHEET_NAME = 'Biometric ID';
  */
 export const EMPLOYEE_CODE_COLUMN = 'Employee Code';
 export const EMPLOYEE_NAME_COLUMN = 'Employee Name';
+export const PHONE_COLUMN = 'Phone';
 export const WORK_EMAIL_COLUMN = 'Work Email';
 export const EMPLOYMENT_TYPE_COLUMN = 'Employment Type';
 export const ROLE_COLUMN = 'Role';
@@ -60,6 +61,12 @@ export const SHEET_COLUMNS = Object.freeze([
     required: true,
     example: 'Sana Iqbal',
     note: 'Never used to match a person — only the code is.',
+  },
+  {
+    name: PHONE_COLUMN,
+    required: false,
+    example: '+92 300 1234567',
+    note: 'Optional. Whatever is written is stored — there is no one format, and a number is never a reason to reject a row.',
   },
   {
     name: WORK_EMAIL_COLUMN,
@@ -113,6 +120,7 @@ export const SHEET_EXAMPLE_ROWS = Object.freeze([
   Object.freeze([
     'CB-1043',
     'Daniyal Khan',
+    '',
     '',
     'SUPPORT_STAFF',
     'EMPLOYEE',
@@ -375,6 +383,16 @@ export function validateRosterRows(
       // the tri-state ones answer with null, which means "not stated" and
       // leaves the create-user form's own default to stand.
       workEmail: details.workEmail.value ?? '',
+      /**
+       * Whatever the cell says, unchecked and unformatted.
+       *
+       * Numbers arrive as `+92 300 1234567`, as `0300-1234567`, and as a
+       * typed Excel number that has already lost its leading zero. There is
+       * no format the company has agreed on, so validating one here would be
+       * inventing it — and rejecting a row over a phone number would hold up
+       * the whole go-live migration for a field nobody is required to hold.
+       */
+      phone: text(row[PHONE_COLUMN]),
       employmentType: details.employmentType.value ?? '',
       dateOfJoining: details.dateOfJoining.value ?? '',
       role: details.role.value,

@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { auth } from './auth.js';
 import { resolveScope } from './authz/check.js';
-import { isPublicPath, requiredPermissionFor } from './authz/routes.js';
-import { SCOPES } from './constants/index.js';
+import {
+  isPublicPath,
+  requiredPermissionFor,
+  userIdInPath,
+} from './authz/routes.js';
+import { PERMISSIONS, SCOPES } from './constants/index.js';
 import { findUserByWorkEmail, getPermissionGrants } from './database.js';
 
 /**
@@ -86,6 +90,38 @@ export const proxy = auth(async (request) => {
     return NextResponse.redirect(
       new URL(`/leave/${user._id}/ledger`, request.nextUrl),
     );
+  }
+
+  /**
+   * The People module is administration, not a staff directory, so a viewer
+   * whose `user.read` does not reach the whole roster may read exactly one
+   * record: their own.
+   *
+   * A guard rather than a hidden link. The navigation drops the module and the
+   * attendance summary stops linking to other people's profiles, but neither
+   * of those stops a typed URL — and a route that is only unreachable because
+   * nothing points at it is not access control at all.
+   *
+   * 404 rather than 403, matching `S-03`: answering "forbidden" for somebody
+   * else's id and "not found" for one nobody holds would turn the address bar
+   * into a way of discovering who exists.
+   *
+   * The collection answers the same way for the API and a redirect for the
+   * screen — the same shape `/leave` already takes above, and for the same
+   * reason: a list narrowed to one person exists only to be clicked through.
+   */
+  if (permission === PERMISSIONS.USER_READ && scope !== SCOPES.ALL) {
+    const requested = userIdInPath(pathname);
+
+    if (requested === null) {
+      return pathname === '/users'
+        ? NextResponse.redirect(new URL(`/users/${user._id}`, request.nextUrl))
+        : NextResponse.rewrite(new URL('/404', request.nextUrl));
+    }
+
+    if (requested !== String(user._id)) {
+      return NextResponse.rewrite(new URL('/404', request.nextUrl));
+    }
   }
 
   // Hand the resolved decision downstream so a handler need not resolve it a

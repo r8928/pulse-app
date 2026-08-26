@@ -119,6 +119,7 @@ export function RosterImport({ teams, shifts, employmentTypes }) {
         payload.accepted.map((row) => ({
           ...row,
           workEmail: row.workEmail ?? '',
+          phone: row.phone ?? '',
           employmentType: row.employmentType ?? '',
           dateOfJoining: row.dateOfJoining ?? '',
           role: row.role ?? ROLES.EMPLOYEE,

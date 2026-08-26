@@ -19,6 +19,7 @@ const EMPTY = {
   fullName: '',
   employeeCode: '',
   workEmail: '',
+  phone: '',
   employmentType: '',
   role: ROLES.EMPLOYEE,
   tracked: true,
@@ -60,6 +61,7 @@ export function UserFormDialog({
             fullName: initial.fullName ?? '',
             employeeCode: initial.employeeCode ?? '',
             workEmail: initial.workEmail ?? '',
+            phone: initial.phone ?? '',
             employmentType: initial.employmentType ?? '',
             role: initial.role ?? EMPTY.role,
             tracked: Boolean(initial.tracked),
@@ -87,6 +89,8 @@ export function UserFormDialog({
       // FR-2.6: work email is optional. An empty field means "none", which is
       // not the same as an empty string and must not be stored as one.
       workEmail: values.workEmail.trim() ? values.workEmail.trim() : null,
+      // Optional in exactly the same sense, and for the same reason.
+      phone: values.phone.trim() ? values.phone.trim() : null,
     });
 
     if (created) {
@@ -127,7 +131,7 @@ export function UserFormDialog({
                 />
               </Grid>
 
-              <Grid size={12}>
+              <Grid size={{ xs: 12, sm: 7 }}>
                 <TextField
                   label='Work email'
                   type='email'
@@ -135,6 +139,17 @@ export function UserFormDialog({
                   onChange={set('workEmail')}
                   fullWidth
                   helperText='Optional. Support staff hold none and never sign in; their attendance is still tracked.'
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 5 }}>
+                <TextField
+                  label='Phone'
+                  value={values.phone}
+                  onChange={set('phone')}
+                  fullWidth
+                  placeholder='+92 300 1234567'
+                  helperText='Optional. Stored exactly as written.'
                 />
               </Grid>
 

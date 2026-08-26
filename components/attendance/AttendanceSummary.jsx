@@ -7,7 +7,9 @@ import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
 import TableViewOutlined from '@mui/icons-material/TableViewOutlined';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -19,12 +21,14 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { PERIOD_MODE } from '../../constants/index.js';
+import { PERIOD_MODE, SCOPES } from '../../constants/index.js';
 import { periodQuery } from '../../utils/period.js';
 import { plural } from '../../utils/plural.js';
 import {
@@ -58,6 +62,9 @@ export function AttendanceSummary({
   leaveTypes,
   period,
   filters,
+  view = SCOPES.ALL,
+  includeLeft = false,
+  isAdmin = false,
   untrackedCount = 0,
   canExport = false,
   canFilterPeople = true,
@@ -72,12 +79,19 @@ export function AttendanceSummary({
   const columns = visibleColumns(groups, collapsed);
   const flatRows = rows.map((row) => flattenSummaryRow(row, leaveTypes));
 
+  const showingSelf = view === SCOPES.SELF;
+
   const go = (next) => {
     const merged = {
       ...periodQuery(period),
       teamId: filters.teamId,
       userId: filters.userId,
       groups: filters.groups,
+      // Always spelled out. Left to the absence of a colleague filter, a
+      // reader switching away from their own row would send nothing and the
+      // page default would put them straight back on it.
+      view,
+      includeLeft: includeLeft ? 'true' : '',
       ...next,
     };
 
@@ -153,56 +167,85 @@ export function AttendanceSummary({
               spacing={2}
               sx={{ alignItems: { md: 'center' } }}
             >
-              <TextField
-                select
-                label='Team'
-                value={filters.teamId ?? ''}
-                onChange={(event) => go({ teamId: event.target.value })}
-                slotProps={{
-                  select: { displayEmpty: true },
-                  inputLabel: { shrink: true },
+              {/* An administrator arrives to read about everybody and a
+                  colleague arrives to read about themselves, so each opens on
+                  their own answer. Neither is locked to it: `FR-8.1` gives
+                  every colleague attendance company-wide, as the old workbook
+                  did, and this only decides where they land. */}
+              <ToggleButtonGroup
+                exclusive
+                value={view}
+                onChange={(_event, next) => {
+                  if (next) go({ view: next, teamId: '', userId: '' });
                 }}
-                sx={{ minWidth: 200 }}
+                aria-label='Whose attendance to show'
               >
-                <MenuItem value=''>Every team</MenuItem>
-                {teams.map((team) => (
-                  <MenuItem key={team._id} value={team._id}>
-                    {team.name}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <ToggleButton value={SCOPES.SELF}>Just me</ToggleButton>
+                <ToggleButton value={SCOPES.ALL}>Everyone</ToggleButton>
+              </ToggleButtonGroup>
 
-              <TextField
-                select
-                label='Colleague'
-                value={filters.userId ?? ''}
-                onChange={(event) => go({ userId: event.target.value })}
-                slotProps={{
-                  select: { displayEmpty: true },
-                  inputLabel: { shrink: true },
-                }}
-                sx={{ minWidth: 220 }}
-              >
-                <MenuItem value=''>Everyone</MenuItem>
-                {people.map((person) => (
-                  <MenuItem key={person._id} value={person._id}>
-                    {person.fullName}
-                  </MenuItem>
-                ))}
-              </TextField>
+              {/* Not offered under "Just me": a team or a colleague chosen
+                  there is a filter that cannot apply, and a stale one left in
+                  the URL would read as though it had. */}
+              {showingSelf ? null : (
+                <>
+                  <TextField
+                    select
+                    label='Team'
+                    value={filters.teamId ?? ''}
+                    onChange={(event) => go({ teamId: event.target.value })}
+                    slotProps={{
+                      select: { displayEmpty: true },
+                      inputLabel: { shrink: true },
+                    }}
+                    sx={{ minWidth: 200 }}
+                  >
+                    <MenuItem value=''>Every team</MenuItem>
+                    {teams.map((team) => (
+                      <MenuItem key={team._id} value={team._id}>
+                        {team.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
 
-              {viewerId ? (
-                <Button
-                  type='button'
-                  variant={
-                    filters.userId === viewerId ? 'contained' : 'outlined'
+                  <TextField
+                    select
+                    label='Colleague'
+                    value={filters.userId ?? ''}
+                    onChange={(event) => go({ userId: event.target.value })}
+                    slotProps={{
+                      select: { displayEmpty: true },
+                      inputLabel: { shrink: true },
+                    }}
+                    sx={{ minWidth: 220 }}
+                  >
+                    <MenuItem value=''>Everyone</MenuItem>
+                    {people.map((person) => (
+                      <MenuItem key={person._id} value={person._id}>
+                        {person.fullName}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </>
+              )}
+
+              {/* `FR-2.4` keeps a departed colleague's figures unchanged and
+                  marked, so they can always be read back. Off by default,
+                  because most days the question is about the people currently
+                  working — and offered only to an administrator, because
+                  deciding to read a former colleague's record is one. */}
+              {isAdmin ? (
+                <FormControlLabel
+                  label='Include colleagues who have left'
+                  control={
+                    <Checkbox
+                      checked={includeLeft}
+                      onChange={(event) =>
+                        go({ includeLeft: event.target.checked ? 'true' : '' })
+                      }
+                    />
                   }
-                  onClick={() =>
-                    go({ userId: filters.userId === viewerId ? '' : viewerId })
-                  }
-                >
-                  Just me
-                </Button>
+                />
               ) : null}
 
               <Stack
@@ -307,6 +350,7 @@ export function AttendanceSummary({
                           row={row}
                           value={flatRows[rowIndex][column.key]}
                           period={period}
+                          linkProfile={isAdmin || row.userId === viewerId}
                         />
                       </TableCell>
                     ))}
@@ -385,11 +429,18 @@ function GroupHeader({ group, collapsed, onToggle }) {
 }
 
 /** One cell. The identifying columns carry links; everything else is a figure. */
-function SummaryCell({ column, row, value, period }) {
+function SummaryCell({ column, row, value, period, linkProfile = false }) {
   if (column.key === 'fullName') {
     return (
       <Stack spacing={0.25}>
-        <Link href={`/users/${row.userId}`}>{row.fullName}</Link>
+        {/* A colleague reaches nobody's profile but their own — `proxy.js`
+            answers 404 for anybody else's. A link that always 404s is worse
+            than no link, so the name is simply a name for them. */}
+        {linkProfile ? (
+          <Link href={`/users/${row.userId}`}>{row.fullName}</Link>
+        ) : (
+          <Typography variant='body2'>{row.fullName}</Typography>
+        )}
         {row.noLongerActive ? (
           <Chip variant='statusNeutral' label='No longer active' />
         ) : null}

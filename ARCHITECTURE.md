@@ -290,7 +290,10 @@ confirms it exists to someone not permitted to know that.
 1. Add it to `PERMISSIONS` in `constants/index.js`.
 2. Add a route rule in `authz/routes.js` — **above** any dynamic pattern that
    would swallow it.
-3. Seed grants for the roles that should hold it in `scripts/seed.js`.
+3. Seed grants for the roles that should hold it in `authz/seedGrants.js`,
+   which `scripts/seed.js` loads and `authz/__tests__/seedGrants.test.js`
+   asserts. The seed script itself cannot be imported by a test — it runs
+   on import and exits without `SEED_ADMIN_EMAIL`.
 4. `OFFICE_ADMIN` needs nothing: `resolveScope` returns `ALL` for it before
    consulting grant data, so a new permission never locks the all-permission
    role out of the screen used to grant it (`FR-1.3`).
@@ -325,7 +328,51 @@ Never `user.role === 'OFFICE_ADMIN'`. That hardcodes into the UI exactly what
 `FR-1.2` stores as editable data, and it silently diverges from `S-19` the
 moment a grant moves.
 
-### 3.5 Never cache grants
+### 3.5 "Admin only" is a scope, not a role
+
+Some surfaces are administration rather than something everyone reads:
+the People module, the attendance summary's default view, and the option to
+include colleagues who have left. `authz/admin.js` answers who they belong
+to, from grant data:
+
+```js
+isAdmin(permissions)   // permissions[PERMISSIONS.USER_READ] === SCOPES.ALL
+```
+
+`user.read` at `ALL` is the only grant that separates the two groups.
+`FR-8.1` deliberately gives an ordinary colleague `attendance.read`,
+`leave.read` and `pto.read` at `ALL` — as everyone had in the old workbook —
+so none of those can tell an administrator from anybody else. Reading every
+colleague's record is the authority that does, and `OFFICE_ADMIN` (`FR-1.3`)
+and `IT` (`FR-2.1`) are the two roles seeded with it.
+
+Narrowing that one cell on `S-19` therefore takes away the People tab, moves
+the attendance default and removes the departed-colleague option, on the next
+request, with no code change.
+
+### 3.6 The People module is guarded, not merely unlinked
+
+A colleague whose `user.read` does not reach the whole roster may read exactly
+one record: their own. `proxy.js` enforces it for pages and API alike, using
+`userIdInPath` from `authz/routes.js`:
+
+| Path | Answer |
+| ---- | ------ |
+| `/users` | Redirect to `/users/<their own id>` |
+| `/users/<their own id>` | Through |
+| `/users/<anyone else>` | `404` |
+| `/api/users` | `404` |
+| `/api/users/<anyone else>/…` | `404` |
+
+`404` rather than `403`, per §3.1: answering "forbidden" for a real id and
+"not found" for an invented one turns the address bar into a way of
+discovering who exists.
+
+The navigation drops the module and the attendance summary stops linking to
+other people's profiles, but neither is the control — a route that is only
+unreachable because nothing points at it is not access control.
+
+### 3.7 Never cache grants
 
 `getPermissionGrants()` reads per request and caches nothing in module scope.
 This is what makes an `S-19` edit effective on the next request. A cache here

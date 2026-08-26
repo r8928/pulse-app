@@ -58,6 +58,7 @@ const FIELD_LABELS = [
   ['fullName', 'Full name'],
   ['employeeCode', 'Employee code'],
   ['workEmail', 'Work email'],
+  ['phone', 'Phone'],
   ['employmentType', 'Employment type'],
   ['role', 'Role'],
   ['dateOfJoining', 'Date of joining'],

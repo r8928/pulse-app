@@ -239,3 +239,27 @@ export function requiredPermissionFor(pathname) {
   const rule = ROUTE_RULES.find((candidate) => candidate.pattern.test(path));
   return rule ? rule.permission : undefined;
 }
+
+/**
+ * The user id a People path names, or `null` where it names none.
+ *
+ * The People module is administration rather than a staff directory, so a
+ * viewer whose `user.read` does not reach the whole roster may read exactly
+ * one record: their own. `proxy.js` compares this against the viewer's own id.
+ *
+ * It lives here rather than in `proxy.js` because it is a statement about the
+ * shape of a route, which is what this file is for — and because a regex
+ * written inline in the validator could not be exercised the way this can.
+ *
+ * `import` is excluded deliberately. `/users/import` is the go-live migration
+ * with a rule of its own above the dynamic pattern; reading it as an id would
+ * compare the word against the viewer's own and 404 the screen out from under
+ * the administrator it belongs to.
+ */
+const USER_ID_PATH = /^(?:\/api)?\/users\/([^/]+)(?:\/.*)?$/;
+
+export function userIdInPath(pathname) {
+  const match = USER_ID_PATH.exec(normalise(pathname));
+  if (!match) return null;
+  return match[1] === 'import' ? null : match[1];
+}

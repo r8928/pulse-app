@@ -35,6 +35,35 @@ describe('NAVIGATION', () => {
 });
 
 describe('visibleNavigation', () => {
+  /**
+   * The People module is administration, not a directory: it carries the
+   * whole user lifecycle, and now the phone numbers too. Holding `user.read`
+   * is not enough — the grant has to reach the whole roster.
+   */
+  it('hides People from a viewer whose user.read reaches only themselves', () => {
+    const routes = visibleNavigation({
+      [PERMISSIONS.USER_READ]: SCOPES.SELF,
+    }).map((item) => item.route);
+
+    expect(routes).not.toContain('/users');
+  });
+
+  it('hides People from a viewer whose user.read reaches only their team', () => {
+    const routes = visibleNavigation({
+      [PERMISSIONS.USER_READ]: SCOPES.TEAM,
+    }).map((item) => item.route);
+
+    expect(routes).not.toContain('/users');
+  });
+
+  it('shows People to a viewer whose user.read reaches everyone', () => {
+    const routes = visibleNavigation(held(PERMISSIONS.USER_READ)).map(
+      (item) => item.route,
+    );
+
+    expect(routes).toContain('/users');
+  });
+
   it('always shows home, which every signed-in user reaches', () => {
     const routes = visibleNavigation({}).map((item) => item.route);
     expect(routes).toContain('/');
@@ -69,6 +98,17 @@ describe('visibleNavigation', () => {
       (item) => item.route,
     );
     expect(routes).not.toContain('/reports');
+  });
+
+  it('leaves every other module gated on the permission alone, not the scope', () => {
+    // Only People is administration. A TEAM-scoped attendance grant is an
+    // ordinary manager's view and must still reach the module.
+    const routes = visibleNavigation({
+      [PERMISSIONS.ATTENDANCE_READ]: SCOPES.TEAM,
+      [PERMISSIONS.LEAVE_READ]: SCOPES.SELF,
+    }).map((item) => item.route);
+
+    expect(routes).toEqual(['/', '/attendance', '/leave']);
   });
 
   it('shows a viewer holding only attendance read exactly home and attendance', () => {
