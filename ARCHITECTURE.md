@@ -1550,8 +1550,8 @@ bounded by more than the employment period: a range recalculation does not by
 itself create a day record, or a policy edit covering a year would mint 365
 `ABSENT` rows per user against `D-15`. Only dates that already carry a record,
 a live punch or a leave record are visited. A caller that genuinely wants a
-record minted — `S-10` opening one team on one date — passes
-`options.materialiseUsers` for that bounded set.
+record minted — the punch import, or `/api/attendance?materialise=true` for
+one team on one date — passes `options.materialiseUsers` for that bounded set.
 
 **An unbounded range** (`from` or `to` null, which a policy or calendar edit
 produces) resolves its ends from that user's recorded activity, never from the
@@ -1661,25 +1661,38 @@ only, `null` for anything created in the application, and never a foreign key.
 
 **Phase:** `P5`, except `P-07` resolve duplicate punch, which is `P6` with the
 `S-05` queue that reaches it.
-**Screens:** `S-09` summary · `S-10` daily attendance · `S-11` import · `S-12` day detail · `S-21` annual summary
+**Screens:** `S-09` summary · `S-11` import · `S-12` day detail · `S-21` annual summary
 **Popups:** `P-21`–`P-25`, `P-07`, `P-43`
 **Depends on:** M-6, and Part II.
 
-### 25.0 Exactly three pages
+### 25.0 Two pages
 
-The module is three pages and no more. This is a deliberate reshape of what
-was five screens across three modules, and the reason each merge happened
-matters more than the fact that it did:
+The module is two pages and no more. This is a deliberate reshape of what was
+five screens across three modules, and the reason each merge happened matters
+more than the fact that it did:
 
 | Page | Route | Was |
 | ---- | ----- | --- |
 | 1 Summary | `/attendance` | `S-09` overview + `S-13` balances + `S-20` report builder |
-| 2 Daily attendance | `/attendance/daily` | `S-10` grid, unchanged |
-| 3 Balance history | `/leave/<id>/ledger` | `S-14`, unchanged |
+| 2 Balance history | `/leave/<id>/ledger` | `S-14`, unchanged |
 
 The summary's second option is the **detailed report**, a popup rather than a
-page — see §25.3. It is not a fourth page and not a tab on page 2: one report,
-one home.
+page — see §25.3. It is not a third page: one report, one home.
+
+**Why the daily grid is gone.** `S-10` showed one team on one date, and every
+correction it offered — add a punch, set the day status, adjust hours, waive a
+deduction, record leave — is the same set `S-12` carries for one colleague on
+one date, reached from a colleague's Attendance tab on `S-07` and from the
+`S-05` exception queues. Two screens over one write is the confusion §25.0
+removes everywhere else.
+
+**What that costs, stated plainly.** Opening the grid was the D-15 touch: it
+minted a day record for every tracked member of a team on that date, absences
+included. Nothing in the UI does that any more. A date with no punch and no
+leave carries no record, so `S-12` answers "no day record for this date" and
+offers nothing to correct — the punch import is what brings such a date into
+existence. `/api/attendance?materialise=true` still performs the touch for a
+caller that asks; no screen passes it.
 
 **Why the summary is one table.** The three it replaces were never independent.
 A reader comparing absences against a leave balance had two tabs open and had
@@ -1694,28 +1707,23 @@ before the query runs — `authz/rosterScope.js` turns the viewer's
 the difference between reading about yourself and reading about everyone in
 the scope, not in a second screen; `report.build` still gates the export.
 
-**Why page 2 gates on the WRITE permission.** Opening it materialises a team's
-day records for that date (`D-15`), which is a write however it is reached. It
-is therefore linked only for those who hold `attendance.write` — a reader
-given the link would meet a 403 from a thing they could see. What a colleague
-reads about themselves is the detailed report on the summary, which gates on
-`attendance.read` like the screen it opens over.
+**What a colleague reads about themselves** is the detailed report on the
+summary, which gates on `attendance.read` like the screen it opens over.
 
-**Why the retired routes still resolve.** `/reports`, `/reports/annual` and
-`/attendance/entry` redirect rather than 404. A link somebody has already sent
-answering 404 the day after a reshuffle costs as much as the invisible screen
-`README.md` already warns about, and their route rules are `null` on purpose:
-gating a doorway that only forwards would answer 403 to someone following an
-old link to a page they may read.
+**Why the retired routes still resolve.** `/reports`, `/reports/annual`,
+`/attendance/entry` and `/attendance/daily` redirect rather than 404. A link
+somebody has already sent answering 404 the day after a reshuffle costs as
+much as the invisible screen `README.md` already warns about, and their route
+rules are `null` on purpose: gating a doorway that only forwards would answer
+403 to someone following an old link to a page they may read.
 
 ### 25.1 What to build
 
 1. **Punch CRUD** (`P-21`, `P-22`): time, type, and the user it belongs to.
 2. **The engine pipeline** (Part II), invoked by `recalculateDays`.
-3. **`S-10` daily grid**: one team, one date, the write surface. Three clicks
-   or fewer from `S-04` (`NFR-1`).
-4. **`S-12` day detail**: punches, computed values, deduction with its named
-   rule, and each override beside the engine value.
+3. **`S-12` day detail**: punches, computed values, deduction with its named
+   rule, and each override beside the engine value — and the write surface for
+   one colleague on one date. Three clicks or fewer from `S-04` (`NFR-1`).
 5. **`S-09` summary**: one row per colleague — calendar, attendance, hours and
    every leave balance — over a week, a month or any range. Column groups
    collapse; the collapsed set travels in the URL, so a view is a link.
@@ -1868,7 +1876,7 @@ one column list, so none of the three can drift.
   **both** the day it left and the day it moved to.
 - Reject a punch change that would move it outside the employment period or
   onto an untracked user, stating that as the reason.
-- **Untracked users do not appear on `S-10`** — they receive no day records.
+- **Untracked users receive no day records at all**, so nothing lists them.
   On `S-09` they are excluded from totals **and the exclusion is stated**, not
   left silent (`FR-2.10`).
 - A day whose shift is unknown shows an **empty status** and links to `P-12`
@@ -2219,7 +2227,7 @@ what breaks if you go earlier; §32.1 says which phase owns it.
         │
         ▼
     3  M-4 Attendance capture               §25
-        punches · S-10 grid · S-12 detail · recalculateDays
+        punches · S-12 detail · recalculateDays
         └─ MVP criteria 2, 12, 18
         │
         ▼
@@ -2295,7 +2303,7 @@ ladder. Building them in the other order means inventing all four.
 | Group | Screens | Popups | Requirements |
 | ----- | ------- | ------ | ------------ |
 | Engine core (§13–§20, §23) | — | — | `FR-3.5`, `FR-3.10`, `FR-3.11`, `FR-3.14`, `FR-5.1`–`FR-5.9`, `FR-6.1`, `FR-6.11`, `FR-6.12`, `BR-5`, `BR-6`, `BR-8`, `BR-9`, `BR-11`, `BR-27` |
-| M-4 Attendance & Leaves (§25) | `S-09` `S-10` `S-11` `S-12` `S-21` | `P-21`–`P-25`, `P-43` | `FR-4.1`–`FR-4.6`, `FR-4.9`–`FR-4.12`, `FR-3.9`, `FR-8.3`–`FR-8.5` |
+| M-4 Attendance & Leaves (§25) | `S-09` `S-11` `S-12` `S-21` | `P-21`–`P-25`, `P-43` | `FR-4.1`–`FR-4.6`, `FR-4.9`–`FR-4.12`, `FR-3.9`, `FR-8.3`–`FR-8.5` |
 | M-5 Ledger and balances (§26) | `S-13` `S-14` | `P-19`, `P-20`, `P-26` | `FR-2.7`, `FR-6.2`, `FR-6.3`, `FR-6.5`, `FR-6.6`, `FR-6.8`, `FR-6.9`, `FR-6.13`, `BR-12`–`BR-17` |
 
 **Why these are intermediate.** Each is a calculation with one correct answer,

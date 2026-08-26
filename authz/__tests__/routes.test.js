@@ -77,15 +77,6 @@ describe('requiredPermissionFor', () => {
     );
   });
 
-  it('gates the daily attendance page on attendance write', () => {
-    // Opening it materialises the team's day records for that date (D-15),
-    // which is a write however it is reached. The detailed report a colleague
-    // reads about themselves is the popup on the summary, not this page.
-    expect(requiredPermissionFor('/attendance/daily')).toBe(
-      PERMISSIONS.ATTENDANCE_WRITE,
-    );
-  });
-
   it('gates attendance import on its own permission', () => {
     expect(requiredPermissionFor('/attendance/import')).toBe(
       PERMISSIONS.ATTENDANCE_IMPORT,
@@ -173,6 +164,7 @@ describe('requiredPermissionFor', () => {
     expect(requiredPermissionFor('/reports')).toBe(null);
     expect(requiredPermissionFor('/reports/annual')).toBe(null);
     expect(requiredPermissionFor('/attendance/entry')).toBe(null);
+    expect(requiredPermissionFor('/attendance/daily')).toBe(null);
   });
 
   it('gates the detailed report on attendance read, not report build', () => {

@@ -57,8 +57,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Navigation in three bands: drawer, icon rail, full drawer | Done |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
-| Attendance capture: daily grid, day detail, punch and override popups (`S-10`, `S-12`) | Done |
-| **Attendance & Leaves in exactly three pages** | Done — summary, daily attendance, balance history |
+| Attendance capture: day detail, punch and override popups (`S-12`) | Done |
+| **Attendance & Leaves in two pages** | Done — summary and balance history; the daily grid is retired |
 | Summary: attendance + leave balances + report columns, one row per colleague | Done — rows narrowed by the viewer's scope |
 | Hours checked in against hours expected, approved leave netted off and shown | Done |
 | WFH used against the team's monthly quota | Done — the ratio only over a month, since `BR-16` caps it per month |
@@ -167,11 +167,11 @@ forgotten filter shows a colleague the whole company. That is
 `authz/rosterScope.js`, and it is why the report columns can sit on a screen
 `EMPLOYEE` reaches.
 
-**`/attendance/daily` is a write surface, not a read one.** Opening it
-materialises a team's day records for that date (`D-15`), which is a write
-however it is reached — so it gates on `attendance.write` and is linked only
-for those who hold it. The detailed report any colleague may read is the popup
-on the summary, which gates on `attendance.read` like the screen it opens over.
+**Nothing in the UI mints a day record any more.** The daily grid did, by
+opening (`D-15`), and it is gone. A date with no punch and no leave carries no
+record, so the day detail has nothing to correct there — the punch import is
+what brings such a date into existence. `/api/attendance?materialise=true`
+still performs the touch for a caller that asks.
 
 **The popup's rows come from the viewer's scope, never from its query.** It is
 a client component, so `/api/attendance/day-by-day` treats `userIds` as a

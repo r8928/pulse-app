@@ -10,7 +10,9 @@ const nextConfig = {
   },
 
   /**
-   * The three routes the Attendance & Leaves merge retired.
+   * The retired routes: three from the Attendance & Leaves merge, plus the
+   * daily grid, which went with it once the day detail carried every
+   * correction on its own.
    *
    * README.md already records that a routed, gated screen reachable only by
    * typing its URL is an invisible screen. The inverse costs as much: a link
@@ -30,7 +32,12 @@ const nextConfig = {
       },
       {
         source: '/attendance/entry',
-        destination: '/attendance/daily',
+        destination: '/attendance',
+        permanent: false,
+      },
+      {
+        source: '/attendance/daily',
+        destination: '/attendance',
         permanent: false,
       },
     ];

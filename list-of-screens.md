@@ -53,7 +53,6 @@ Three rules govern the whole inventory:
 │   ├── /users/[id]        S-07  P4  User detail
 │   └── /users/import      S-08  P4  Roster import
 ├── /attendance            S-09  P5  Attendance summary        M-4
-│   ├── /attendance/daily  S-10  P5  Daily attendance (2 views)
 │   ├── /attendance/annual S-21  P6  Annual summary
 │   ├── /attendance/import S-11  P5  Attendance import
 │   └── /attendance/[userId]/[date]
@@ -69,7 +68,7 @@ Three rules govern the whole inventory:
 └── /audit                 S-22  P4  Audit log                 M-9
 
 Retired, redirecting:  /reports → /attendance  ·  /reports/annual →
-/attendance/annual  ·  /attendance/entry → /attendance/daily
+/attendance/annual  ·  /attendance/entry and /attendance/daily → /attendance
 
 /signin  S-01 ✔   ·   /403  S-02 ✔   ·   /404  S-03 ✔          M-1
 ```
@@ -220,8 +219,10 @@ without a dismissable overlay.
 
 ### M-4 · Attendance & Leaves
 
-**Exactly three pages**: the summary below, daily attendance, and the balance history under M-5. `S-13`'s
-balances and `S-20`'s report columns were merged into `S-09`; the report builder screen is gone.
+**Two pages**: the summary below and the balance history under M-5. `S-13`'s balances and `S-20`'s report
+columns were merged into `S-09`; the report builder screen is gone. `S-10`, the daily grid, is retired too —
+every correction it offered is on `S-12`, for one colleague on one date, and nothing in the UI materialises a
+day record any more.
 
 #### S-09 · Attendance summary · `P5`
 
@@ -249,33 +250,6 @@ balances and `S-20`'s report columns were merged into `S-09`; the report builder
 - **Popups** `P-43` `P-45`
 - **States** Empty: a range with no records says so. Paged and virtualised (`DC-10`).
 
-#### S-10 · Daily attendance · `P5`
-
-- **Route** `/attendance/daily`
-- **Purpose** Two views of the same days. **By date**: enter and correct attendance for one team on one date,
-  the write surface, built so a single day's correction takes three clicks or fewer from `S-04` (`NFR-1`).
-  **Day by day**: every date in a period for whoever is selected, read only, in the shape of the workbook it
-  replaces.
-- **Access** `attendance.read` at `ALL`. The by-date view needs `attendance.write` and is offered only to
-  those who hold it — it materialises the team's day records when it opens (`D-15`), so exactly one view is
-  rendered per request and a reader is never shown a tab that would answer 403.
-- **Spec** `FR-4.1`, `FR-4.8`, `FR-4.9`, `FR-5.1`, `FR-5.2`, `FR-2.12`, `NFR-1`
-- **Columns, by date** Punches · worked duration · day type · day status · late minutes · deduction and the
-  rule that produced it · override marker.
-- **Columns, day by day** Employee, spanning their block · day and date · check-in · check-out · total
-  hours · leave balance · leave used · leave awarded.
-- **Filters** By date: team · date. Day by day: weekly / monthly / custom · team · a multi-select of
-  colleagues within it. The view and the filters travel in the URL.
-- **Behaviour** Untracked users appear in neither — they receive no day records (`FR-2.10`). A day whose
-  shift is unknown shows an empty status and links to `P-12` (`FR-3.12`). The day-by-day view is continuous:
-  every date in the period has a row whether or not anything was recorded on it, since a view built only
-  from the records that exist cannot show a gap. Dates outside the employment period are marked rather than
-  shown as absence (`FR-2.12`). A punch is read in the timezone of the shift it belongs to (§7.2); a missing
-  counterpart says nothing rather than midnight (`FR-4.8`).
-- **Popups** `P-21` `P-22` `P-23` `P-24` `P-25` `P-46` `P-47`
-- **States** Empty: a date outside every user's employment period renders no rows and says why. Day by day
-  with nobody selected says so rather than rendering a bare table.
-
 #### S-11 · Attendance import · `P5`
 
 - **Route** `/attendance/import`
@@ -299,8 +273,8 @@ balances and `S-20`'s report columns were merged into `S-09`; the report builder
 - **Purpose** Everything the engine concluded about one user on one date, and why. This is where `FR-5.x`
   day classification becomes visible.
 - **Access** `attendance.read` at `ALL`.
-- **Spec** `FR-3.5`, `FR-3.11`, `FR-4.6`, `FR-5.1`, `FR-5.2`, `FR-5.3`, `FR-5.8`, `FR-5.9`, `FR-6.11`,
-  `FR-6.12`, `FR-7.6`, `FR-9.4`, `NFR-11`
+- **Spec** `FR-3.5`, `FR-3.11`, `FR-4.1`, `FR-4.6`, `FR-4.9`, `FR-5.1`, `FR-5.2`, `FR-5.3`, `FR-5.8`,
+  `FR-5.9`, `FR-6.11`, `FR-6.12`, `FR-7.6`, `FR-9.4`, `NFR-11`
 - **Sections**
   - **Punches** — every punch with its instant, type, source (form or import), work date, and duplicate flag.
     Multiple check in / check out pairs aggregate into one day total (`FR-4.6`).
@@ -638,7 +612,7 @@ side you came from.
 | `FR-3.12` | `S-05` (No shift), `P-12`, `S-12` |
 | `FR-3.13` | `S-05` (Missing config), `P-06`, `S-17` |
 | `FR-3.14` | `P-11`, `S-07` (Team assignments) |
-| `FR-4.1` | `S-10`, `P-21` |
+| `FR-4.1` | `S-12`, `P-21` |
 | `FR-4.2` | `S-11` |
 | `FR-4.3` | `S-11` step 1 |
 | `FR-4.4` | `S-11` step 3, `S-05` (Unmatched rows) |
@@ -646,12 +620,12 @@ side you came from.
 | `FR-4.6` | `S-12` |
 | `FR-4.7` | `S-05` (Duplicate), `P-07`, `P-39` |
 | `FR-4.8` | `S-05` (Missing punch), `P-21` |
-| `FR-4.9` | `S-10`, `P-23`, `P-24`, `P-26` |
+| `FR-4.9` | `S-12`, `P-23`, `P-24`, `P-26` |
 | `FR-4.10` | `P-46`, `S-22` |
 | `FR-4.11` | `S-11` step 2 |
 | `FR-4.12` | `P-21`, `P-22`, `P-07` |
-| `FR-5.1` | `S-12`, `S-10` |
-| `FR-5.2` | `S-12`, `S-10`, `P-23` |
+| `FR-5.1` | `S-12` |
+| `FR-5.2` | `S-12`, `P-23` |
 | `FR-5.3` | `S-12` |
 | `FR-5.4` | `P-23` |
 | `FR-5.5` | `P-38`, `S-13`, `P-23` |

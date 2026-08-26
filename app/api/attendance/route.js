@@ -14,12 +14,13 @@ import { recalculateDays } from '../../../engine/recalculate.js';
 import { errorResponse } from '../../../utils/apiResponse.js';
 
 /**
- * The read surface behind S-09 and S-10.
+ * The read surface behind the attendance summary.
  *
- * `materialise=true` is what S-10 passes when an OFFICE_ADMIN opens one team
- * on one date: D-15 creates a day record the first time something touches the
- * date, and opening the grid is that touch. It is bounded to one team and one
- * date deliberately (D-2, D-18) — the whole point is that nothing else in the
+ * `materialise=true` is the D-15 touch: a day record is created the first time
+ * something touches the date. No screen passes it any more — the daily grid
+ * that did is gone — so day records now arise from the punch import, from
+ * recording leave, and from a caller asking for this flag explicitly. It stays
+ * bounded to one team and one date deliberately (D-2, D-18): nothing in the
  * system proactively backfills.
  *
  * Because it writes, it asserts `attendance.write` rather than the read

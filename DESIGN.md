@@ -147,7 +147,7 @@ components:
 **Creative North Star: "The Legible Ledger"**
 
 Pulse replaces a spreadsheet, and the people using it read it as a spreadsheet.
-`S-10`, `S-14` and `S-20` are mostly figures. So it should feel like a well-kept
+`S-09`, `S-12` and `S-14` are mostly figures. So it should feel like a well-kept
 ledger rather than a product page: dense rows, figures aligned down the column,
 and nothing decorative competing with the numbers for attention.
 

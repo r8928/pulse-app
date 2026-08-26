@@ -29,18 +29,6 @@ const ROUTE_RULES = [
     pattern: /^\/attendance\/import$/,
     permission: PERMISSIONS.ATTENDANCE_IMPORT,
   },
-  /**
-   * Page 2 is the write surface: opening it materialises the team's day
-   * records for that date (D-15), which is a write however it is reached.
-   *
-   * The detailed report a colleague reads about themselves is not here — it
-   * is the popup on the summary, gated on attendance.read like the screen it
-   * opens over.
-   */
-  {
-    pattern: /^\/attendance\/daily$/,
-    permission: PERMISSIONS.ATTENDANCE_WRITE,
-  },
   {
     pattern: /^\/attendance\/annual$/,
     permission: PERMISSIONS.ATTENDANCE_READ,
@@ -60,8 +48,8 @@ const ROUTE_RULES = [
   { pattern: /^\/settings$/, permission: PERMISSIONS.CONFIG_READ },
 
   /**
-   * Retired by the Attendance & Leaves merge, and kept only so the redirects
-   * in `next.config.mjs` are reachable.
+   * Retired: the first two by the Attendance & Leaves merge, the daily grid
+   * afterwards. Kept only so the redirects in `next.config.mjs` are reachable.
    *
    * `null` rather than a permission: there is no screen here any more, only a
    * forward to one that gates properly. Gating the doorway too would answer
@@ -69,7 +57,7 @@ const ROUTE_RULES = [
    * DC-6 still holds — the destination does the checking.
    */
   { pattern: /^\/reports(\/annual)?$/, permission: null },
-  { pattern: /^\/attendance\/entry$/, permission: null },
+  { pattern: /^\/attendance\/(entry|daily)$/, permission: null },
 
   { pattern: /^\/audit$/, permission: PERMISSIONS.AUDIT_READ },
 

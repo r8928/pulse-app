@@ -1,4 +1,3 @@
-import CalendarViewDayOutlined from '@mui/icons-material/CalendarViewDayOutlined';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -14,7 +13,8 @@ import { periodFromSearchParams } from '../../../utils/period.js';
 /**
  * Page 1 — Summary. The merge of what used to be three screens: the attendance
  * overview (`S-09`), the leave balances (`S-13`) and the report builder
- * (`S-20`).
+ * (`S-20`). The daily grid that used to sit beside it is gone: a day is
+ * corrected on the day detail (`S-12`), one colleague at a time.
  *
  * Server component: it reads the session and the data and hands both down as
  * props (CLAUDE.md — the client leaf never reads the session).
@@ -67,34 +67,15 @@ export default async function AttendanceSummaryPage({ searchParams }) {
         actions={
           // `href` rather than `component={Link}`: this is a server component,
           // and passing the component through fails the build.
-          <>
-            {/* Page 2 was reachable only by typing its URL, which README.md
-                names as the mistake that made the go-live roster import
-                invisible. Adding a route is not shipping a screen.
-
-                Offered only to writers, because opening that page writes: it
-                materialises the team's day records for the date (D-15). A
-                reader who clicked it would meet a 403 from proxy.js. */}
-            {viewer.permissions[PERMISSIONS.ATTENDANCE_WRITE] ? (
-              <Button
-                href='/attendance/daily'
-                variant='outlined'
-                startIcon={<CalendarViewDayOutlined />}
-              >
-                Daily attendance
-              </Button>
-            ) : null}
-
-            {viewer.permissions[PERMISSIONS.ATTENDANCE_IMPORT] ? (
-              <Button
-                href='/attendance/import'
-                variant='outlined'
-                startIcon={<UploadFileOutlined />}
-              >
-                Import punches
-              </Button>
-            ) : null}
-          </>
+          viewer.permissions[PERMISSIONS.ATTENDANCE_IMPORT] ? (
+            <Button
+              href='/attendance/import'
+              variant='outlined'
+              startIcon={<UploadFileOutlined />}
+            >
+              Import punches
+            </Button>
+          ) : null
         }
       />
 
