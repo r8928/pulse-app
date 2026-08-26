@@ -43,12 +43,14 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | `proxy.js` endpoint check, `guard.js` record check | Done |
 | App shell, every screen routed and gated | Done |
 | People: roster, detail, create, soft delete, restore | Done |
+| Create a user with their team and shift, per `FR-2.1` | Done — team optional, both required once they are attendance-tracked (`FR-3.4`) |
 | People is admin-only, and a colleague reaches only their own record | Done — `proxy.js` redirects `/users` to their own profile and 404s anybody else's |
 | Optional phone number: form, profile, roster column, import sheet | Done — never required, stored exactly as written |
 | Company config: employment types, authorised domains (`S-18`) | Done |
 | Access control matrix, effective next request (`S-19`) | Done |
 | Teams, with the manager and member count (`S-16`) | Done |
 | Team configuration: shifts, calendar, weekly off, policy, ladders (`S-17`) | Done |
+| Shift times read as 12-hour clock times | Done — `9:00 AM`, not `09:00`; the edit dialog keeps the browser's own time input |
 | User lifecycle: role, team, shift, tracked, login, tenures (`S-07`) | Done |
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
 | Sheet format guide on arriving at `S-08`, plus a blank template to download | Done |
@@ -57,6 +59,7 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Audit records on every mutation | Done |
 | Audit log: paged, filterable, read only (`S-22`) | Done |
 | Navigation in three bands: drawer, icon rail, full drawer | Done |
+| A skeleton while a screen loads, so no tab shows the last one's buttons | Done — one `loading.js` over the whole authenticated shell |
 | Optimistic concurrency, 409 on stale writes | Done |
 | Seed script | Done |
 | Attendance capture: day detail, punch and override popups (`S-12`) | Done |
@@ -70,6 +73,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Detailed report, read on screen without downloading | Done — a popup over the content area, sidebar and top bar still usable |
 | Day-by-day detail: every date in a period, per colleague | Done — continuous, so a gap is visible |
 | Balance history and the ledger trace (`S-14`) | Done — every figure replayed, never stored |
+| Balance history one click from the home page | Done — a button on the snapshot, and every balance figure is itself a link |
+| Home is self-service, not a menu | Done — the module tiles are gone; the left rail is the only way in |
 | Day classification (`FR-5.x`) | Done — engine, ledger posting and both screens |
 | Leave recorded per date, deducted from the ledger (`P-26`) | Done |
 | Leave engine (`FR-6.x`): entitlements, proration, carry forward | Done |

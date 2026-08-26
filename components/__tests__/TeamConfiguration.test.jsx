@@ -121,6 +121,17 @@ describe('TeamConfiguration', () => {
     expect(screen.getByText('Day 09:00 to 18:00')).toBeInTheDocument();
   });
 
+  it('reads shift times off a 12-hour clock, not a 24-hour one', async () => {
+    // Nobody in the office says "eighteen hundred". The stored value stays
+    // `HH:mm` because that is what sorts and compares; only the reading here
+    // changes.
+    render17();
+    await userEvent.click(screen.getByRole('tab', { name: 'Shifts' }));
+
+    expect(screen.getByText('9:00 AM')).toBeInTheDocument();
+    expect(screen.getByText('6:00 PM')).toBeInTheDocument();
+  });
+
   it('shows a holiday with its written type, never colour alone', async () => {
     render17();
     await userEvent.click(

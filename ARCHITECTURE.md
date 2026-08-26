@@ -650,8 +650,14 @@ Every screen defines three, and `list-of-screens.md` states them per screen:
 
 - **Empty** — says *why* it is empty and what to do. Never a blank grid, never
   zeroes that read as "absent all year". Use `EmptyState`.
-- **Loading** — skeletons matching the eventual layout.
-- **Error** — scoped as tightly as possible. `S-04` fails per tile so one
+- **Loading** — skeletons matching the eventual layout. Screen-level loading is
+  one file, `app/(app)/loading.js`: Next wraps every page and nested layout
+  below the shell in a Suspense boundary, so a single skeleton covers all eight
+  modules and cannot drift from any of them. It exists for the *flash* — without
+  a boundary the previous screen stays mounted until the next has finished
+  reading, and one page wears another's buttons. A module needing its own
+  shape adds a `loading.js` beside its `page.js`; the nearest one wins.
+- **Error** — scoped as tightly as possible. `S-04` fails per section so one
   broken count does not blank the page.
 
 ### 10.5 Accessibility and clarity

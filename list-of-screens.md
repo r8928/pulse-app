@@ -119,16 +119,20 @@ without a dismissable overlay.
 #### S-04 · Home · `P6`
 
 - **Route** `/`
-- **Purpose** Landing page for every role. Launchpad into the modules the viewer's permissions reach, plus a
-  snapshot of their own attendance and balances.
-- **Access** Any signed-in user. Tiles render per permission; a viewer holding only attendance read sees the
-  snapshot and nothing else.
-- **Spec** `NFR-1`, `FR-8.1`
-- **Sections** Own attendance and balance snapshot · Navigation tiles per permitted module · Exception counts
-  by queue, linking into `S-05`, for viewers holding the exceptions permission.
+- **Purpose** Landing page for every role, and self-service rather than a menu: how the viewer is doing this
+  year, and a way to ask why each figure is what it is. The module tiles are **retired** — the navigation rail
+  is on screen at every width and already lists exactly the modules a viewer's permissions reach, so the tiles
+  were a second door into the same rooms and a second thing to keep in step with `S-19`.
+- **Access** Any signed-in user. Written for `EMPLOYEE` first, since that is who most viewers are.
+- **Spec** `NFR-1`, `NFR-11`, `FR-8.1`
+- **Sections** Own attendance and balance snapshot, with balance history one click away — a button, and every
+  balance figure is itself a link into `S-14` · Exception counts by queue, linking into `S-05`, below the
+  snapshot and only for viewers holding the exceptions permission.
 - **Popups** None.
-- **States** Empty: a new user with no records sees the tiles and an explanatory line instead of zeroed stats.
-  Loading: skeleton tiles. Error: per-tile, so one failing count does not blank the page.
+- **States** Empty: a new user with no records gets an explanatory line instead of zeroed stats, naming what
+  will appear and what has to happen first, and still reaching balance history — the one link that works
+  before any attendance exists. Loading: the shell's own skeleton, from `app/(app)/loading.js`. Error: per
+  section, so one failing count does not blank the page.
 
 #### S-05 · Exceptions dashboard · `P6`
 
@@ -503,7 +507,7 @@ Reused across many screens rather than belonging to one.
 
 | ID | Phase | Popup | Notes | Spec |
 | -- | ----- | ----- | ----- | ---- |
-| `P-08` | `✔` | Create user | Full name, employee code, work email (optional), team, employment type, tracked, role, shift. Employee code unique across all users including soft-deleted ones. | `FR-2.1`, `FR-2.6` |
+| `P-08` | `✔` | Create user | Full name, employee code, work email (optional), phone (optional), team, employment type, tracked, role, shift. Employee code unique across all users including soft-deleted ones. Shifts belong to a team (`FR-3.3`), so the shift select is disabled until a team is chosen and then fills from that team alone, starting on its default; changing team clears a shift the new team does not own. Team and shift are **required exactly when `tracked` is on** — `FR-3.4` requires a shift for a tracked user, and a shift cannot be reached without a team — and optional otherwise (`FR-2.10`). Changing either afterwards is `P-11`/`P-12`, never an edit here (`FR-3.14`). | `FR-2.1`, `FR-2.6`, `FR-3.4` |
 | `P-09` | `P4` | Edit user | The `FR-2.6` fields. Role, team, and shift changes are separate operations. | `FR-2.1`, `FR-2.6` |
 | `P-10` | `P4` | Change role | One role at a time. Choosing `MANAGER` requires naming the team, and replaces that team's previous manager in the same action. | `FR-1.7`, `FR-1.4`, `FR-3.1` |
 | `P-11` | `P4` | Move team | Effective date; history never rewritten. Names a replacement manager if the user manages the outgoing team. States whether the user takes the new team's default shift or keeps their own. | `FR-3.14` |

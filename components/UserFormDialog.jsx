@@ -21,6 +21,8 @@ const EMPTY = {
   workEmail: '',
   phone: '',
   employmentType: '',
+  teamId: '',
+  shiftId: '',
   role: ROLES.EMPLOYEE,
   tracked: true,
   loginEnabled: true,
@@ -31,9 +33,18 @@ const EMPTY = {
  * P-08 and P-09. Creates a user and opens their first tenure from the date of
  * joining, or edits the `FR-2.6` fields of one that exists.
  *
- * Role, team and shift are deliberately absent from the edit case: `FR-2.1`
- * makes each a separate operation with its own consequences, and each has its
- * own dialog carrying its own mandatory reason.
+ * Role, team and shift are deliberately absent from the **edit** case:
+ * `FR-2.1` and `FR-3.14` make changing any of them after creation a separate
+ * operation with its own consequences, each with its own dialog carrying its
+ * own mandatory reason. On creation there is no past to preserve, so `FR-2.1`
+ * puts team and shift here alongside the rest of the joiner's details.
+ *
+ * **The rule between the two selects.** A shift belongs to a team (`FR-3.3`),
+ * so there is nothing to choose from until a team is; and `FR-3.4` requires a
+ * shift for a tracked user while leaving it optional for an untracked one.
+ * Those two together are the whole rule: team is optional in general and
+ * required exactly when attendance is tracked, because a tracked user needs a
+ * shift and a shift cannot be reached without a team.
  *
  * Enter submits and Esc cancels, via a real form element: the primary button
  * is type='submit' and every other button is type='button', so neither
@@ -46,10 +57,16 @@ export function UserFormDialog({
   pending,
   error,
   employmentTypes,
+  teams = [],
   initial,
 }) {
   const [values, setValues] = useState(EMPTY);
   const editing = Boolean(initial);
+
+  const chosenTeam = teams.find((team) => team._id === values.teamId) ?? null;
+  const shifts = chosenTeam?.shifts ?? [];
+  /** FR-3.4 in one line, and the reason the team select is required with it. */
+  const needsShift = values.tracked;
 
   useEffect(() => {
     if (!open) return;
@@ -63,6 +80,8 @@ export function UserFormDialog({
             workEmail: initial.workEmail ?? '',
             phone: initial.phone ?? '',
             employmentType: initial.employmentType ?? '',
+            teamId: initial.teamId ?? '',
+            shiftId: initial.shiftId ?? '',
             role: initial.role ?? EMPTY.role,
             tracked: Boolean(initial.tracked),
             loginEnabled: Boolean(initial.loginEnabled),
@@ -78,11 +97,32 @@ export function UserFormDialog({
   const setChecked = (field) => (event) =>
     setValues((current) => ({ ...current, [field]: event.target.checked }));
 
+  /**
+   * Moving team takes the shift with it. A shift belongs to one team, so the
+   * one selected a moment ago does not exist inside the new one — carrying it
+   * over would submit an id the team cannot resolve.
+   *
+   * The new team's own default lands in its place, which is what a joiner
+   * takes unless somebody says otherwise (`FR-3.4`), and leaves the field
+   * already answered in the ordinary case.
+   */
+  const setTeam = (event) => {
+    const teamId = event.target.value;
+    const team = teams.find((candidate) => candidate._id === teamId) ?? null;
+
+    setValues((current) => ({
+      ...current,
+      teamId,
+      shiftId: team?.defaultShiftId ?? '',
+    }));
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    // Role is changed through P-10, never here, so an edit never carries one.
-    const { role, tracked, loginEnabled, ...fields } = values;
+    // Role goes through P-10 and team and shift through P-11 and P-12, each
+    // carrying its own reason, so an edit never carries any of the three.
+    const { role, tracked, loginEnabled, teamId, shiftId, ...fields } = values;
 
     const created = await onSubmit({
       ...(editing ? fields : values),
@@ -91,6 +131,10 @@ export function UserFormDialog({
       workEmail: values.workEmail.trim() ? values.workEmail.trim() : null,
       // Optional in exactly the same sense, and for the same reason.
       phone: values.phone.trim() ? values.phone.trim() : null,
+      // Optional in the same sense again: '' is "no team", never a team whose
+      // id is the empty string. An untracked user may legitimately hold
+      // neither (FR-2.10).
+      ...(editing ? {} : { teamId: teamId || null, shiftId: shiftId || null }),
     });
 
     if (created) {
@@ -174,6 +218,65 @@ export function UserFormDialog({
                   ))}
                 </TextField>
               </Grid>
+
+              {editing ? null : (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    select
+                    label='Team'
+                    value={values.teamId}
+                    onChange={setTeam}
+                    required={needsShift}
+                    fullWidth
+                    slotProps={{
+                      select: { displayEmpty: true },
+                      inputLabel: { shrink: true },
+                    }}
+                    helperText={
+                      needsShift
+                        ? 'Required while attendance is tracked: the shift every calculation resolves through belongs to a team.'
+                        : 'Optional. It can be set later, and an untracked user needs none.'
+                    }
+                  >
+                    <MenuItem value=''>No team</MenuItem>
+                    {teams.map((team) => (
+                      <MenuItem key={team._id} value={team._id}>
+                        {team.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+              )}
+
+              {editing ? null : (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    select
+                    label='Shift'
+                    value={values.shiftId}
+                    onChange={set('shiftId')}
+                    required={needsShift}
+                    disabled={!chosenTeam}
+                    fullWidth
+                    slotProps={{
+                      select: { displayEmpty: true },
+                      inputLabel: { shrink: true },
+                    }}
+                    helperText={
+                      chosenTeam
+                        ? 'Starts on the team default. A tracked user must have one — it supplies the start, the required duration, the grace period and the timezone.'
+                        : 'Choose a team first. Shifts belong to a team, so there are none to offer yet.'
+                    }
+                  >
+                    <MenuItem value=''>No shift</MenuItem>
+                    {shifts.map((shift) => (
+                      <MenuItem key={shift._id} value={shift._id}>
+                        {shift.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+              )}
 
               <Grid
                 size={{ xs: 12, sm: 6 }}

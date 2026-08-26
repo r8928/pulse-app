@@ -21,6 +21,7 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useEffect, useState } from 'react';
+import { formatClockTime } from '../../utils/time.js';
 import { EmptyState } from '../EmptyState.jsx';
 import { ReasonDialog } from '../ReasonDialog.jsx';
 
@@ -230,10 +231,14 @@ export function ShiftsPanel({
                 <TableRow key={shift._id} hover>
                   <TableCell>{shift.name}</TableCell>
                   <TableCell>
-                    <Typography variant='mono'>{shift.startTime}</Typography>
+                    <Typography variant='mono'>
+                      {formatClockTime(shift.startTime)}
+                    </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant='mono'>{shift.endTime}</Typography>
+                    <Typography variant='mono'>
+                      {formatClockTime(shift.endTime)}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant='mono'>

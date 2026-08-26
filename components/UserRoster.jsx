@@ -34,6 +34,7 @@ export function UserRoster({
   canWrite,
   canImport,
   employmentTypes,
+  teams = [],
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const { createUser, pending, error } = useUserMutations();
@@ -147,6 +148,7 @@ export function UserRoster({
         pending={pending}
         error={error}
         employmentTypes={employmentTypes}
+        teams={teams}
       />
     </Stack>
   );

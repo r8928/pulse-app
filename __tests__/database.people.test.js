@@ -45,6 +45,31 @@ const user = (overrides = {}) =>
     actor,
   );
 
+/**
+ * `FR-2.1` puts the team and the shift in `IT`'s hands at creation, so `P-08`
+ * sends both and they have to survive the trip. Changing either afterwards is
+ * a separate operation with its own reason (`FR-3.14`), covered below.
+ */
+describe('creating a user with their team and shift', () => {
+  useTestDatabase();
+
+  it('stores the team and shift the form chose', async () => {
+    const created = await user({ teamId: 't1', shiftId: 's1' });
+
+    expect(created.teamId).toBe('t1');
+    expect(created.shiftId).toBe('s1');
+  });
+
+  it('holds neither for an untracked user, which needs no shift', async () => {
+    // FR-2.10: an untracked user requires no shift, and FR-3.4 makes it
+    // optional for them. Absent is stored as null, never as an empty string.
+    const created = await user({ tracked: false });
+
+    expect(created.teamId).toBeNull();
+    expect(created.shiftId).toBeNull();
+  });
+});
+
 describe('changeUserRole', () => {
   useTestDatabase();
 

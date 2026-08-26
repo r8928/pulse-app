@@ -2759,6 +2759,66 @@ export async function listShifts(
   return { items, total: items.length };
 }
 
+/**
+ * Every assignable team with the shifts that belong to it (`FR-3.3`).
+ *
+ * `P-08` offers a team and a shift in one dialog, and has to hold every
+ * team's shifts before the reader has picked a team — so this is one read
+ * rather than `listShifts` once per team, which would be a query per row of a
+ * select that has not been opened yet.
+ *
+ * Only what may be assigned **now**: a soft deleted team or shift is excluded,
+ * because `FR-2.4` keeps a soft deleted record readable everywhere it already
+ * appears while never offering it as the subject of a new assignment. A team
+ * with no shift yet is kept, not dropped — it is a team somebody still has to
+ * configure, and the dialog can only say so if it can see it (`DC-6`).
+ *
+ * Ids come back as strings. `P-08` is a client component and an ObjectId does
+ * not cross that boundary as itself.
+ */
+export async function listTeamsWithShifts(companyId = DEFAULT_COMPANY_ID) {
+  const db = await getDb();
+
+  const teams = await db
+    .collection(COLLECTIONS.TEAMS)
+    .aggregate([
+      { $match: { companyId, deletedAt: null } },
+      { $sort: { name: 1, _id: 1 } },
+      {
+        $lookup: {
+          from: COLLECTIONS.SHIFTS,
+          // `teamId` is stored on a shift as a string, so the join compares
+          // against the team's id converted to one rather than the ObjectId.
+          let: { teamId: { $toString: '$_id' } },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$teamId', '$$teamId'] },
+                companyId,
+                deletedAt: null,
+              },
+            },
+            { $sort: { startTime: 1, _id: 1 } },
+          ],
+          as: 'shifts',
+        },
+      },
+    ])
+    .toArray();
+
+  return teams.map((team) => ({
+    _id: String(team._id),
+    name: team.name,
+    defaultShiftId: team.defaultShiftId ? String(team.defaultShiftId) : null,
+    shifts: team.shifts.map((shift) => ({
+      _id: String(shift._id),
+      name: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+    })),
+  }));
+}
+
 export async function createShift(
   input,
   actor,

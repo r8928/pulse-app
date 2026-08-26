@@ -3,7 +3,7 @@ import {
   EMPLOYMENT_TYPE_SEEDS,
   PERMISSIONS,
 } from '../../../constants/index.js';
-import { listUsers } from '../../../database.js';
+import { listTeamsWithShifts, listUsers } from '../../../database.js';
 import { getSessionUser } from '../../../session.js';
 
 /**
@@ -14,10 +14,18 @@ export default async function UsersPage({ searchParams }) {
   const params = await searchParams;
   const user = await getSessionUser();
 
-  const { items, total, activeCount } = await listUsers({
-    search: params?.search ?? '',
-    page: Number(params?.page ?? 1),
-  });
+  /**
+   * The teams and their shifts are read here rather than inside the dialog:
+   * `FR-2.1` puts both on the create form, and a client component cannot
+   * reach the database. Already serialised by `listTeamsWithShifts`.
+   */
+  const [{ items, total, activeCount }, teams] = await Promise.all([
+    listUsers({
+      search: params?.search ?? '',
+      page: Number(params?.page ?? 1),
+    }),
+    listTeamsWithShifts(),
+  ]);
 
   return (
     <UserRoster
@@ -33,6 +41,7 @@ export default async function UsersPage({ searchParams }) {
       canWrite={Boolean(user.permissions[PERMISSIONS.USER_WRITE])}
       canImport={Boolean(user.permissions[PERMISSIONS.USER_IMPORT])}
       employmentTypes={Object.values(EMPLOYMENT_TYPE_SEEDS)}
+      teams={teams}
     />
   );
 }

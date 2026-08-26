@@ -58,10 +58,78 @@ describe('OwnSnapshot', () => {
     );
 
     expect(
-      screen.getByText(/nothing recorded for you yet/i),
+      screen.getByText(/nothing has been recorded for you yet/i),
     ).toBeInTheDocument();
     // The point of the whole test: no "0" masquerading as a fact.
     expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('reaches balance history in one click, as a button rather than fine print', () => {
+    render(
+      <OwnSnapshot
+        userId='u1'
+        attendance={attendance}
+        balances={balances}
+        hasRecords
+      />,
+    );
+
+    expect(
+      screen.getByRole('link', { name: /balance history/i }),
+    ).toHaveAttribute('href', '/leave/u1/ledger');
+  });
+
+  it('makes each balance figure its own way into what produced it', () => {
+    // NFR-11 is "why is this number what it is". The shortest honest answer
+    // is to let the number itself be the door.
+    render(
+      <OwnSnapshot
+        userId='u1'
+        attendance={attendance}
+        balances={balances}
+        hasRecords
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: /annual/i })).toHaveAttribute(
+      'href',
+      '/leave/u1/ledger?leaveType=Annual',
+    );
+  });
+
+  /**
+   * The attendance figures are counted from day records, not replayed from
+   * the ledger, so `S-14` has nothing to say about them. A link that led
+   * somewhere unable to explain the number would be worse than none.
+   */
+  it('does not offer a ledger trace for an attendance figure', () => {
+    render(
+      <OwnSnapshot
+        userId='u1'
+        attendance={attendance}
+        balances={balances}
+        hasRecords
+      />,
+    );
+
+    expect(screen.queryByRole('link', { name: /^present$/i })).toBeNull();
+  });
+
+  it('still offers balance history to someone with no records yet', () => {
+    // It is the one link that works before any attendance exists, and the
+    // empty state is exactly where a new colleague is standing.
+    render(
+      <OwnSnapshot
+        userId='u1'
+        attendance={{ present: 0, absent: 0, wfh: 0, leave: 0, lateDays: 0 }}
+        balances={[]}
+        hasRecords={false}
+      />,
+    );
+
+    expect(
+      screen.getByRole('link', { name: /balance history/i }),
+    ).toBeInTheDocument();
   });
 });
 
