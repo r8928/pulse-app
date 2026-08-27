@@ -78,6 +78,7 @@ const REQUIRED_POLICY_FIELDS = [
 export function missingConfiguration({
   team,
   shifts = [],
+  calendar,
   weeklyOffPattern,
   policy,
 }) {
@@ -136,12 +137,24 @@ export function missingConfiguration({
     }
   }
 
-  // FR-3.8: a team's non-working days are not assumed to be the weekend. An
-  // empty list is a real answer — a team that works every day — so only the
-  // absence of a pattern counts.
-  if (!weeklyOffPattern || !Array.isArray(weeklyOffPattern.daysOfWeek)) {
+  /**
+   * FR-3.7 and FR-3.8. Two distinct causes with two distinct fixes, so two
+   * distinct gaps: a team observing no calendar at all, and a calendar that
+   * has never said which days are non-working. Neither is defaulted — a
+   * fallback to Saturday and Sunday is the assumption FR-3.8 forbids (`D-29`).
+   *
+   * An empty `daysOfWeek` is a real answer — a calendar whose teams work every
+   * day — so only the absence of a pattern counts.
+   */
+  if (!calendar) {
     add(
       teamName,
+      'calendarId',
+      'A team observes the holidays and the weekly off of the calendar it is assigned to, and this team is assigned to none.',
+    );
+  } else if (!weeklyOffPattern || !Array.isArray(weeklyOffPattern.daysOfWeek)) {
+    add(
+      `Calendar ${calendar.name}`,
       'weeklyOffPattern',
       'Which days are non-working is not assumed to be Saturday and Sunday.',
     );

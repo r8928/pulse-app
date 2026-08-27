@@ -528,8 +528,10 @@ offset lookup. Do not store or compute offsets yourself.
 | Company | `permissionGrants` | role × permission × scope |
 | Team | `teamPolicy` | leave types, entitlement, accrual, all three ladders, PTO validity, WFH quota, thresholds, windows |
 | Team | `shifts` | start, end, required duration, grace, **timezone** |
-| Team | `holidays` | typed calendar entries |
-| Team | `weeklyOffPatterns` | non-working days |
+| Company | `holidayCalendars` | named calendars, shared across teams |
+| Calendar | `holidays` | typed calendar entries |
+| Calendar | `weeklyOffPatterns` | non-working days |
+| Team | `teams.calendarId` | which calendar this team observes, nullable and never defaulted |
 
 ### 8.2 Reading it
 
@@ -980,15 +982,27 @@ One day record, `workedMinutes = 497`. 497 / 540 = 92.0%, which is above the
 `FR-5.9` step one, and it comes first because the status rules branch on it.
 
 ```
-resolveDayType(date, team, holidays, weeklyOffPattern):
-  if holidays has an entry for (team, date) and not deletedAt → HOLIDAY
-  if weeklyOffPattern.daysOfWeek includes dayOfWeek(date)     → WEEKLY_OFF
-  otherwise                                                    → WORKING
+resolveDayType(date, holidays, weeklyOffPattern):
+  if holidays has an entry for date and not deletedAt      → HOLIDAY
+  if weeklyOffPattern.daysOfWeek includes dayOfWeek(date)  → WEEKLY_OFF
+  otherwise                                                 → WORKING
 ```
 
 **Use the team the user held on that date**, from `teamAssignments`, not their
 current team (`FR-3.14`). This is what makes MVP criterion 19 work: an August
 report counts Team A's holidays for someone who moved to Team B in September.
+
+The holidays and the pattern reaching this function belong to the **calendar
+the team is assigned to** (`FR-3.7`, `D-28`). The engine never resolves that
+itself: `database.js` exposes `listHolidaysForTeam` and
+`getWeeklyOffPatternForTeam`, which look the assignment up and delegate, so
+the `holidaysByTeam` and `weeklyOffByTeam` maps every pure function consumes
+keep their per-team keying — the keying a mid-period team move depends on.
+
+A team assigned to no calendar reads as no holidays and no weekly off, so
+every date is `WORKING` until one is assigned. That is an outstanding
+configuration value on `S-05`, never a default (`DC-6`, `D-29`): falling back
+to Saturday and Sunday is the assumption `FR-3.8` exists to forbid.
 
 **Day type is a fact about the date, not about the person.** It has no
 override. `OFFICE_ADMIN` changing what happened on a day overrides the
@@ -1662,8 +1676,8 @@ and this section adds only what that document leaves to the implementer.
 **Phase:** `P4` — **delivered**, Phase 4 branch 2.
 **Screens:** `S-16` Teams · `S-17` Team configuration
 **Popups:** `P-28`–`P-39`
-**Built first**, because attendance cannot classify a day without a shift, a
-calendar and a weekly-off pattern.
+**Built first**, because attendance cannot classify a day without a shift and
+a holiday calendar — which carries the weekly-off pattern with it.
 
 **Identity was corrected in this branch.** Teams and shifts now carry ordinary
 `ObjectId` identity and every child document references it. The seed had keyed
@@ -1679,8 +1693,11 @@ only, `null` for anything created in the application, and never a foreign key.
    (`FR-3.1`).
 2. **Shifts** (`P-30`): name, start, end, required daily duration, grace,
    **timezone**. Set the team default (`FR-3.3`, `FR-3.4`).
-3. **Holiday calendar** (`P-31`): typed entries, per team (`FR-3.7`).
-4. **Weekly off pattern** (`P-32`): not assumed Saturday/Sunday (`FR-3.8`).
+3. **Holiday calendars** (`S-26`, `P-31`, `P-32`): company-wide named
+   calendars holding typed entries and a weekly off pattern, assigned to
+   teams (`FR-3.7`, `FR-3.8`). A team observes exactly one; a calendar serves
+   many. Not per team, and never created automatically with a team. `S-17`
+   shows the assigned calendar read-only and links here.
 5. **Leave policy** (`P-33`, `P-34`) and **ladders** (`P-35`–`P-37`).
 6. **Thresholds and windows** (`P-38`, `P-39`).
 7. **Shift assignment with effective date ranges** (`P-12`, `FR-3.6`).
@@ -1694,10 +1711,24 @@ only, `null` for anything created in the application, and never a foreign key.
 | `POST` | `/api/teams/[id]/soft-delete` | `team.write` |
 | `GET` `PUT` | `/api/teams/[id]/policy` | `config.read` / `config.write` |
 | `POST` `PATCH` | `/api/shifts`, `/api/shifts/[id]` | `config.write` |
-| `POST` `PATCH` `DELETE` | `/api/teams/[id]/holidays` | `config.write` |
+| `GET` `POST` | `/api/holiday-calendars` | `config.read` / `config.write` |
+| `PATCH` | `/api/holiday-calendars/[id]` | `config.write` |
+| `POST` | `/api/holiday-calendars/[id]/soft-delete` | `config.write` |
+| `PUT` | `/api/holiday-calendars/[id]/teams` | `config.write` |
+| `GET` `PUT` | `/api/holiday-calendars/[id]/weekly-off` | `config.read` / `config.write` |
+| `GET` `POST` `PATCH` | `/api/holidays` | `config.read` / `config.write` |
 
 ### 24.3 Traps
 
+- **Soft deleting a holiday calendar is rejected while any team is assigned
+  to it**, naming those teams so they can be moved first (`D-30`). The same
+  shape as the rule below, and for the same reason: one click, and every team
+  on it loses its working week at once.
+- **A calendar mutation fans out over every assigned team.** A holiday added,
+  edited or removed, and a weekly-off pattern saved, each recalculate every
+  team on that calendar — not one. A team assignment change recalculates the
+  team joining *and* the team leaving, because the day type of every date
+  changes for both (`D-31`). This is the widest fan-out in the system.
 - **Soft deleting a team is rejected while any non-soft-deleted user is
   assigned to it**, naming those users so they can be *moved* first — moved,
   not deleted (`FR-3.2`, `P-29`). A team with only past assignments may go.
@@ -2332,7 +2363,7 @@ and the `FR-2.11` half of step 8 form Phase 6.
 
 | Group | Screens | Popups | Requirements |
 | ----- | ------- | ------ | ------------ |
-| M-6 Organisation and policy (§24) | `S-16` `S-17` | `P-28`–`P-39` | `FR-3.1`–`FR-3.4`, `FR-3.6`–`FR-3.8`, `FR-6.4`, `BR-1`–`BR-4`, `BR-7` |
+| M-6 Organisation and policy (§24) | `S-16` `S-17` `S-26` | `P-28`–`P-39` | `FR-3.1`–`FR-3.4`, `FR-3.6`–`FR-3.8`, `FR-6.4`, `BR-1`–`BR-4`, `BR-7` |
 | M-7 Config and access (§29) | `S-18` `S-19` | `P-40`–`P-42` | `FR-1.2`–`FR-1.5`, `FR-2.6` |
 | M-3 People remainder (§28) | `S-07` tabs, `S-08` | `P-09`–`P-14`, `P-17`, `P-18` | `FR-1.7`, `FR-2.1`, `FR-2.9`, `FR-2.12` |
 | M-9 Audit read surface (§31) | `S-22` | `P-44`, `P-45` | `FR-1.6`, `FR-9.4` |

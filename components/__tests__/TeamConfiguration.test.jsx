@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { TeamConfiguration } from '../TeamConfiguration.jsx';
 
 /**
- * S-17. One team's complete policy, across seven tabs.
+ * S-17. One team's complete policy, across six tabs.
  *
  * The assertions are about which values are shown, which gaps are named and
  * which controls a viewer is offered — never about a design token.
@@ -44,6 +44,7 @@ const configuration = {
       version: 1,
     },
   ],
+  calendar: { _id: 'cal-1', name: 'Pakistan calendar', version: 1 },
   weeklyOffPattern: { _id: 'w1', daysOfWeek: [6, 0], version: 1 },
   policy: {
     _id: 'p1',
@@ -77,14 +78,13 @@ const render17 = (overrides = {}) =>
   );
 
 describe('TeamConfiguration', () => {
-  it('offers all seven tabs', () => {
+  it('offers all six tabs', () => {
     render17();
 
     for (const label of [
       'Members',
       'Shifts',
       'Holiday calendar',
-      'Weekly off',
       'Leave policy',
       'Ladders',
       'Thresholds & windows',
@@ -147,11 +147,60 @@ describe('TeamConfiguration', () => {
   it('names the weekly off days in words rather than as numbers', async () => {
     // NFR-2: no unexplained abbreviation. "6, 0" means nothing to a reader.
     render17();
-    await userEvent.click(screen.getByRole('tab', { name: 'Weekly off' }));
+    await userEvent.click(
+      screen.getByRole('tab', { name: 'Holiday calendar' }),
+    );
 
-    expect(screen.getByRole('checkbox', { name: 'Saturday' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Sunday' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: 'Monday' })).not.toBeChecked();
+    expect(screen.getByText(/Saturday, Sunday/)).toBeInTheDocument();
+  });
+
+  it('offers no separate weekly off tab', () => {
+    // The pattern belongs to the calendar now, and the calendar is shared, so
+    // editing it from one team's screen would change other teams (`D-31`).
+    render17();
+
+    expect(
+      screen.queryByRole('tab', { name: 'Weekly off' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('names the assigned calendar and offers no control over it', async () => {
+    render17();
+    await userEvent.click(
+      screen.getByRole('tab', { name: 'Holiday calendar' }),
+    );
+
+    expect(
+      screen.getByRole('link', { name: 'Pakistan calendar' }),
+    ).toHaveAttribute('href', '/settings/holiday-calendars');
+    expect(
+      screen.queryByRole('button', { name: /new holiday/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /save weekly off/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('points a team assigned to no calendar at S-26', async () => {
+    render(
+      <TeamConfiguration
+        configuration={{
+          ...configuration,
+          calendar: null,
+          holidays: [],
+          weeklyOffPattern: null,
+        }}
+        users={[]}
+        canWrite
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole('tab', { name: 'Holiday calendar' }),
+    );
+
+    expect(
+      screen.getByRole('link', { name: /holiday calendars/i }),
+    ).toHaveAttribute('href', '/settings/holiday-calendars');
   });
 
   it('warns that saving a policy change triggers recalculation', async () => {

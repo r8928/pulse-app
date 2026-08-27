@@ -25,13 +25,13 @@ const DAYS = [
 ];
 
 /**
- * P-32. Which days this team does not work.
+ * P-32. Which days the teams on this calendar do not work.
  *
  * `FR-3.8` is explicit that this is not assumed to be Saturday and Sunday, so
- * nothing is pre-ticked for a team that has never set one — the absence is
+ * nothing is pre-ticked for a calendar that has never set one — the absence is
  * flagged as outstanding instead.
  */
-export function WeeklyOffPanel({ pattern, canWrite, mutations, teamId }) {
+export function WeeklyOffPanel({ pattern, canWrite, mutations, calendarId }) {
   const [days, setDays] = useState(pattern?.daysOfWeek ?? []);
   const { setWeeklyOff, pending, error } = mutations;
 
@@ -44,7 +44,7 @@ export function WeeklyOffPanel({ pattern, canWrite, mutations, teamId }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    await setWeeklyOff(teamId, {
+    await setWeeklyOff(calendarId, {
       daysOfWeek: days,
       version: pattern?.version ?? null,
     });
@@ -54,17 +54,18 @@ export function WeeklyOffPanel({ pattern, canWrite, mutations, teamId }) {
     <form onSubmit={handleSubmit}>
       <Stack spacing={2}>
         <Typography variant='body2' color='text.secondary'>
-          The days this team does not work. Not assumed to be Saturday and
-          Sunday — a team that works every day leaves all seven unticked, which
-          is a real answer rather than an unset one.
+          The days no team on this calendar works. Not assumed to be Saturday
+          and Sunday — a calendar whose teams work every day leaves all seven
+          unticked, which is a real answer rather than an unset one.
         </Typography>
 
         {error ? <Alert severity='error'>{error}</Alert> : null}
 
         {pattern ? null : (
           <Alert severity='warning'>
-            No pattern is set for this team yet, so no date can be classified as
-            a weekly off. Saving below sets one, including saving it empty.
+            No pattern is set on this calendar yet, so no date can be classified
+            as a weekly off for any team on it. Saving below sets one, including
+            saving it empty.
           </Alert>
         )}
 

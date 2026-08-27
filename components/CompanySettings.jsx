@@ -3,6 +3,7 @@
 import BadgeOutlined from '@mui/icons-material/BadgeOutlined';
 import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
 import EditOutlined from '@mui/icons-material/EditOutlined';
+import EventOutlined from '@mui/icons-material/EventOutlined';
 import LanguageOutlined from '@mui/icons-material/LanguageOutlined';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
@@ -209,6 +210,36 @@ export function CompanySettings({ employmentTypes, domains, canWrite }) {
           </TableRow>
         ))}
       </ConfigPanel>
+
+      {/* A routed, gated screen nobody links to has not shipped. S-26 is
+          company configuration like the two panels above, so this is where a
+          reader looking for it goes first. `href`, never `component={Link}` —
+          a server component cannot pass a function to a client one. */}
+      <Paper variant='outlined'>
+        <Stack spacing={2} sx={{ p: 3 }}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={2}
+            sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
+          >
+            <Stack spacing={1}>
+              <Typography variant='sectionTitle'>Holiday calendars</Typography>
+              <Typography variant='body2' color='text.secondary'>
+                The holidays and non-working days every team observes. A
+                calendar is shared — two or three serve the whole company — and
+                each team is assigned exactly one.
+              </Typography>
+            </Stack>
+            <Button
+              variant='outlined'
+              href='/settings/holiday-calendars'
+              startIcon={<EventOutlined />}
+            >
+              Open holiday calendars
+            </Button>
+          </Stack>
+        </Stack>
+      </Paper>
 
       <EmploymentTypeDialog
         open={Boolean(typeDialog)}

@@ -49,7 +49,8 @@ Google OAuth redirect URI must be `http://localhost:3000/api/auth/callback/googl
 | Company config: employment types, authorised domains (`S-18`) | Done |
 | Access control matrix, effective next request (`S-19`) | Done |
 | Teams, with the manager and member count (`S-16`) | Done |
-| Team configuration: shifts, calendar, weekly off, policy, ladders (`S-17`) | Done |
+| Team configuration: shifts, policy, ladders (`S-17`) | Done — the calendar and weekly off are read-only here, owned by `S-26` |
+| Holiday calendars, shared across teams (`S-26`) | Done — a calendar holds the holidays and the weekly off; each team is assigned exactly one |
 | Shift times read as 12-hour clock times | Done — `9:00 AM`, not `09:00`; the edit dialog keeps the browser's own time input |
 | User lifecycle: role, team, shift, tracked, login, tenures (`S-07`) | Done |
 | Roster import from the Biometric ID sheet (`S-08`) | Done |
@@ -125,6 +126,17 @@ surface left to undo it from. Add the replacement first.
 **A withheld permission is a row with a null scope, not a missing row.** Nothing
 is destroyed, the row keeps its version for the next edit, and the change has a
 real before and after to audit.
+
+**A calendar is shared, so one edit fans out.** Holidays and the weekly off
+pattern belong to a calendar, not a team, and a calendar serves several teams.
+Every mutation recalculates every assigned team — and a team assignment change
+recalculates both the team joining and the team leaving, because the day type
+of every date changes for both.
+
+**A team with no calendar is unconfigured, not defaulted.** It reads as no
+holidays and no weekly off, and `policyCompleteness` reports it. There is no
+default calendar and no fallback: Saturday and Sunday is the exact assumption
+`FR-3.8` exists to forbid.
 
 **Policy is data.** Ladders, thresholds, entitlements and windows live in
 `teamPolicy`, not in `constants/`. If you are typing a number from §3.10 into a

@@ -31,9 +31,9 @@ const {
   createUser,
   getDayRecord,
   listLedgerEntriesForSource,
-  setWeeklyOffPattern,
   updateTeamPolicy,
 } = await import('../database.js');
+const { giveTeamACalendar } = await import('../test/calendar.js');
 
 const held = (...names) =>
   Object.fromEntries(names.map((name) => [name, SCOPES.ALL]));
@@ -92,12 +92,7 @@ describe('the attendance API', () => {
       null,
       actor,
     );
-    await setWeeklyOffPattern(
-      String(team._id),
-      { daysOfWeek: [0, 6] },
-      null,
-      actor,
-    );
+    await giveTeamACalendar(String(team._id), { daysOfWeek: [0, 6] }, actor);
 
     const shift = await createShift(
       {

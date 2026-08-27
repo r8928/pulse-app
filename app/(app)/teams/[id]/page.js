@@ -60,6 +60,9 @@ export default async function TeamConfigurationPage({ params }) {
             'version',
           ]),
         ),
+        calendar: configuration.calendar
+          ? plain(configuration.calendar, ['name', 'version'])
+          : null,
         holidays: configuration.holidays.map((holiday) =>
           plain(holiday, ['date', 'name', 'type', 'version']),
         ),

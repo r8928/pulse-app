@@ -104,6 +104,7 @@ export const COLLECTIONS = Object.freeze({
   SHIFTS: 'shifts',
   SHIFT_ASSIGNMENTS: 'shiftAssignments',
   TEAM_ASSIGNMENTS: 'teamAssignments',
+  HOLIDAY_CALENDARS: 'holidayCalendars',
   HOLIDAYS: 'holidays',
   WEEKLY_OFF_PATTERNS: 'weeklyOffPatterns',
   TEAM_POLICY: 'teamPolicy',
@@ -216,6 +217,12 @@ export const teamSchema = z.object({
   name: z.string().trim().min(1, 'A name is required'),
   managerId: z.string().nullable().optional(),
   defaultShiftId: z.string().nullable().optional(),
+  /**
+   * FR-3.7. The calendar this team observes, assigned on `S-26`. Nullable and
+   * never defaulted — a team with none is an outstanding value on the S-05
+   * queue, not a team that quietly works Monday to Friday (`D-29`).
+   */
+  calendarId: z.string().nullable().optional(),
 });
 
 /** A 24-hour clock time. A shift ending before it starts crosses midnight. */
@@ -246,9 +253,18 @@ export const shiftSchema = z.object({
     .min(1, 'A timezone is required — there is no company-wide default'),
 });
 
+/**
+ * FR-3.7. A calendar is company-wide and carries a name and nothing else
+ * (`D-33`). The timezone the engine reads lives on the shift (`FR-3.10`,
+ * `DC-5`); a second one here would be a source of drift with no reader.
+ */
+export const holidayCalendarSchema = z.object({
+  name: z.string().trim().min(1, 'A name is required'),
+});
+
 /** FR-3.7. Typed, so nothing about a calendar depends on formatting or colour. */
 export const holidaySchema = z.object({
-  teamId: z.string().min(1, 'A holiday belongs to a team'),
+  calendarId: z.string().min(1, 'A holiday belongs to a calendar'),
   date: isoDate,
   name: z.string().trim().min(1, 'A name is required'),
   type: z.enum(Object.values(HOLIDAY_TYPE)),
@@ -256,7 +272,8 @@ export const holidaySchema = z.object({
 
 /**
  * FR-3.8. Sunday is 0 through Saturday 6, matching `Date#getDay`. An empty
- * list is a real answer — a team that works every day — so it is accepted.
+ * list is a real answer — a calendar whose teams work every day — so it is
+ * accepted. The pattern belongs to the calendar, not the team (`D-28`).
  */
 export const weeklyOffPatternSchema = z.object({
   daysOfWeek: z
@@ -501,6 +518,9 @@ export async function ensureIndexes() {
       unique: true,
       partialFilterExpression: { key: { $type: 'string' } },
     },
+    // `S-26` reads the roster of one calendar on every listing and every
+    // delete check, so the assignment is indexed from the calendar's side.
+    { key: { companyId: 1, calendarId: 1 } },
     { key: { companyId: 1, deletedAt: 1, name: 1 } },
   ]);
 
@@ -513,13 +533,39 @@ export async function ensureIndexes() {
     { key: { companyId: 1, teamId: 1, deletedAt: 1 } },
   ]);
 
-  await db
-    .collection(COLLECTIONS.HOLIDAYS)
-    .createIndexes([{ key: { companyId: 1, teamId: 1, date: 1 } }]);
+  await db.collection(COLLECTIONS.HOLIDAY_CALENDARS).createIndexes([
+    /**
+     * Unique among LIVE calendars only. Two calendars called "India" are
+     * indistinguishable in the picker that assigns them, but a soft deleted
+     * one must never block the name of its replacement.
+     */
+    {
+      key: { companyId: 1, name: 1 },
+      unique: true,
+      partialFilterExpression: { deletedAt: null },
+      name: 'holiday_calendar_one_live_name',
+    },
+  ]);
 
   await db
-    .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
-    .createIndexes([{ key: { companyId: 1, teamId: 1 }, unique: true }]);
+    .collection(COLLECTIONS.HOLIDAYS)
+    .createIndexes([{ key: { companyId: 1, calendarId: 1, date: 1 } }]);
+
+  await db.collection(COLLECTIONS.WEEKLY_OFF_PATTERNS).createIndexes([
+    /**
+     * One pattern per calendar. Partial on `calendarId` being a string so a
+     * row still carrying the pre-`FR-3.7` `teamId` shape does not collide
+     * with every other such row on a shared null — the index has to be able
+     * to build against a database `migrateTeamCalendars` has not reached yet,
+     * or the migration could never run.
+     */
+    {
+      key: { companyId: 1, calendarId: 1 },
+      unique: true,
+      partialFilterExpression: { calendarId: { $type: 'string' } },
+      name: 'weekly_off_one_per_calendar',
+    },
+  ]);
 
   await db
     .collection(COLLECTIONS.TEAM_POLICY)
@@ -2918,15 +2964,309 @@ export async function softDeleteShift(
   });
 }
 
-// --- Holidays --------------------------------------------------------------
+// --- Holiday calendars -----------------------------------------------------
 
-/** FR-3.7: each team keeps its own calendar, so two observe different days. */
-export async function listHolidays(
-  teamId,
-  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+/**
+ * FR-3.7. Company-wide records that teams are assigned to. Two or three serve
+ * the whole company; none is created automatically when a team is created.
+ */
+export async function listHolidayCalendars({
+  includeDeleted = false,
+  companyId = DEFAULT_COMPANY_ID,
+} = {}) {
+  const db = await getDb();
+  const filter = { companyId };
+  if (!includeDeleted) filter.deletedAt = null;
+
+  const items = await db
+    .collection(COLLECTIONS.HOLIDAY_CALENDARS)
+    .find(filter)
+    .sort({ name: 1, _id: 1 })
+    .toArray();
+
+  return { items, total: items.length };
+}
+
+export async function getHolidayCalendarById(
+  id,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  return db
+    .collection(COLLECTIONS.HOLIDAY_CALENDARS)
+    .findOne({ _id: new ObjectId(id), companyId });
+}
+
+export async function createHolidayCalendar(
+  input,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const data = parse(holidayCalendarSchema, input);
+  const db = await getDb();
+
+  const clash = await db
+    .collection(COLLECTIONS.HOLIDAY_CALENDARS)
+    .findOne({ companyId, name: data.name, deletedAt: null });
+
+  if (clash) {
+    throw new ValidationError(
+      `A calendar called ${data.name} already exists. Edit that one rather than adding a second with the same name.`,
+    );
+  }
+
+  return createOwnedRecord(COLLECTIONS.HOLIDAY_CALENDARS, {
+    data,
+    action: 'HOLIDAY_CALENDAR_CREATED',
+    entityType: 'holidayCalendar',
+    companyId,
+    actor,
+  });
+}
+
+export async function updateHolidayCalendar(
+  id,
+  patch,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const db = await getDb();
+  const before = await db
+    .collection(COLLECTIONS.HOLIDAY_CALENDARS)
+    .findOne({ _id: new ObjectId(id), companyId });
+  if (!before) return null;
+
+  const data = parse(holidayCalendarSchema.partial(), patch);
+
+  if (data.name && data.name !== before.name) {
+    const clash = await db
+      .collection(COLLECTIONS.HOLIDAY_CALENDARS)
+      .findOne({ companyId, name: data.name, deletedAt: null });
+
+    if (clash) {
+      throw new ValidationError(
+        `A calendar called ${data.name} already exists.`,
+      );
+    }
+  }
+
+  const after = await updateWithVersion(
+    COLLECTIONS.HOLIDAY_CALENDARS,
+    id,
+    version,
+    {
+      $set: { ...data, updatedAt: new Date(), updatedBy: actor.userId },
+      $inc: { version: 1 },
+    },
+    companyId,
+  );
+
+  await writeAuditRecord({
+    actorId: actor.userId,
+    actorName: actor.name,
+    action: 'HOLIDAY_CALENDAR_UPDATED',
+    entityType: 'holidayCalendar',
+    entityId: id,
+    before,
+    after,
+    reason: patch.reason ?? null,
+    companyId,
+  });
+
+  return after;
+}
+
+/** Every live team currently observing this calendar. */
+export async function listTeamsOnCalendar(
+  calendarId,
+  companyId = DEFAULT_COMPANY_ID,
 ) {
   const db = await getDb();
-  const filter = { companyId, teamId };
+  return db
+    .collection(COLLECTIONS.TEAMS)
+    .find({ companyId, calendarId, deletedAt: null })
+    .sort({ name: 1, _id: 1 })
+    .toArray();
+}
+
+/**
+ * `D-31`. The full list of teams this calendar serves, reconciled: teams named
+ * but not currently assigned join, teams currently assigned but not named
+ * leave, and a team already on another calendar is moved.
+ *
+ * Returns both sides because the caller has to recalculate both. A team
+ * leaving loses the holidays and the weekly off it was classified against, so
+ * its day types change exactly as much as a joining team's do.
+ */
+export async function setCalendarTeams(
+  calendarId,
+  teamIds,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const wanted = [...new Set(teamIds ?? [])].filter(
+    (id) => id && ObjectId.isValid(id),
+  );
+
+  const current = (await listTeamsOnCalendar(calendarId, companyId)).map(
+    (team) => String(team._id),
+  );
+
+  const joined = wanted.filter((id) => !current.includes(id));
+  const left = current.filter((id) => !wanted.includes(id));
+
+  if (joined.length === 0 && left.length === 0) return { joined: [], left: [] };
+
+  const now = new Date();
+
+  for (const [ids, value] of [
+    [joined, calendarId],
+    [left, null],
+  ]) {
+    if (ids.length === 0) continue;
+
+    const objectIds = ids.map((id) => new ObjectId(id));
+
+    const before = await db
+      .collection(COLLECTIONS.TEAMS)
+      .find({ companyId, _id: { $in: objectIds } })
+      .toArray();
+
+    await db.collection(COLLECTIONS.TEAMS).updateMany(
+      { companyId, _id: { $in: objectIds } },
+      {
+        $set: { calendarId: value, updatedAt: now, updatedBy: actor.userId },
+        $inc: { version: 1 },
+      },
+    );
+
+    for (const team of before) {
+      await writeAuditRecord({
+        actorId: actor.userId,
+        actorName: actor.name,
+        action: 'TEAM_CALENDAR_ASSIGNED',
+        entityType: 'team',
+        entityId: String(team._id),
+        before: team,
+        after: { ...team, calendarId: value, version: team.version + 1 },
+        companyId,
+      });
+    }
+  }
+
+  return { joined, left };
+}
+
+/**
+ * `D-30`. Refused while any team is still assigned. The same reasoning as
+ * refusing to remove the last authorised domain: the click is one action, but
+ * the consequence is every team on this calendar losing its working week at
+ * once, and nothing on the screen would make that visible before it happened.
+ */
+export async function softDeleteHolidayCalendar(
+  id,
+  input,
+  version,
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  if (!ObjectId.isValid(id)) return null;
+
+  const assigned = await listTeamsOnCalendar(id, companyId);
+
+  if (assigned.length > 0) {
+    const names = assigned.map((team) => team.name).join(', ');
+    const one = assigned.length === 1;
+
+    throw new ValidationError(
+      `${names} ${one ? 'is' : 'are'} still assigned to this calendar. Move ${one ? 'it' : 'them'} to another calendar first — removing this one would leave ${one ? 'that team' : 'those teams'} with no working week at all.`,
+    );
+  }
+
+  const data = parse(reasonSchema, input);
+
+  return softDeleteOwnedRecord(COLLECTIONS.HOLIDAY_CALENDARS, {
+    id,
+    reason: data.reason,
+    version,
+    action: 'HOLIDAY_CALENDAR_SOFT_DELETED',
+    entityType: 'holidayCalendar',
+    companyId,
+    actor,
+  });
+}
+
+/**
+ * Everything `S-26` renders, in one read: every live calendar with the teams
+ * assigned to it, its holidays and its weekly off pattern, plus every live
+ * team and the calendar each currently observes.
+ *
+ * One function rather than a query per panel, because `page.js` may hold no
+ * query of its own — and because the screen's job is comparing calendars
+ * against each other, which needs all of them at once.
+ */
+export async function listHolidayCalendarsWithDetail(
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const { items } = await listHolidayCalendars({ companyId });
+
+  const calendars = await Promise.all(
+    items.map(async (calendar) => {
+      const calendarId = String(calendar._id);
+
+      return {
+        ...calendar,
+        teams: (await listTeamsOnCalendar(calendarId, companyId)).map(
+          (team) => ({ _id: String(team._id), name: team.name }),
+        ),
+        holidays: (await listCalendarHolidays(calendarId, { companyId })).items,
+        weeklyOffPattern: await getCalendarWeeklyOff(calendarId, companyId),
+      };
+    }),
+  );
+
+  const nameById = new Map(
+    calendars.map((calendar) => [String(calendar._id), calendar.name]),
+  );
+
+  const db = await getDb();
+  const teams = (
+    await db
+      .collection(COLLECTIONS.TEAMS)
+      .find({ companyId, deletedAt: null })
+      .sort({ name: 1, _id: 1 })
+      .toArray()
+  ).map((team) => ({
+    _id: String(team._id),
+    name: team.name,
+    calendarId: team.calendarId ?? null,
+    // Named, not just referenced: the picker has to say which calendar a team
+    // would be moved off, and an id would not tell the reader that.
+    calendarName: team.calendarId
+      ? (nameById.get(team.calendarId) ?? null)
+      : null,
+  }));
+
+  return { calendars, teams };
+}
+
+// --- Holidays --------------------------------------------------------------
+
+/** FR-3.7: one calendar's holidays, shared by every team assigned to it. */
+export async function listCalendarHolidays(
+  calendarId,
+  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  if (!calendarId) return { items: [], total: 0 };
+
+  const db = await getDb();
+  const filter = { companyId, calendarId };
   if (!includeDeleted) filter.deletedAt = null;
 
   const items = await db
@@ -2948,14 +3288,14 @@ export async function createHoliday(
 
   const clash = await db.collection(COLLECTIONS.HOLIDAYS).findOne({
     companyId,
-    teamId: data.teamId,
+    calendarId: data.calendarId,
     date: data.date,
     deletedAt: null,
   });
 
   if (clash) {
     throw new ValidationError(
-      `This team already observes ${clash.name} on ${data.date}. Edit that entry rather than adding a second one.`,
+      `This calendar already observes ${clash.name} on ${data.date}. Edit that entry rather than adding a second one.`,
     );
   }
 
@@ -3035,24 +3375,26 @@ export async function softDeleteHoliday(
 
 // --- Weekly off pattern ----------------------------------------------------
 
-export async function getWeeklyOffPattern(
-  teamId,
+export async function getCalendarWeeklyOff(
+  calendarId,
   companyId = DEFAULT_COMPANY_ID,
 ) {
+  if (!calendarId) return null;
+
   const db = await getDb();
   return db
     .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
-    .findOne({ companyId, teamId });
+    .findOne({ companyId, calendarId });
 }
 
 /**
- * FR-3.8. Exactly one pattern per team, replaced in place.
+ * FR-3.8. Exactly one pattern per calendar, replaced in place.
  *
- * `version` is null the first time, when the team has no pattern yet — the
+ * `version` is null the first time, when the calendar has no pattern yet — the
  * same shape `setPermissionGrant` uses for a cell with no row.
  */
-export async function setWeeklyOffPattern(
-  teamId,
+export async function setCalendarWeeklyOff(
+  calendarId,
   input,
   version,
   actor,
@@ -3061,13 +3403,13 @@ export async function setWeeklyOffPattern(
   const data = parse(weeklyOffPatternSchema, input);
   const db = await getDb();
   const now = new Date();
-  const before = await getWeeklyOffPattern(teamId, companyId);
+  const before = await getCalendarWeeklyOff(calendarId, companyId);
 
   let after;
 
   if (!before) {
     const doc = {
-      teamId,
+      calendarId,
       daysOfWeek: data.daysOfWeek,
       companyId,
       version: 1,
@@ -3111,6 +3453,37 @@ export async function setWeeklyOffPattern(
   });
 
   return after;
+}
+
+// --- The team-facing seam --------------------------------------------------
+
+/**
+ * `D-28`. The engine consumes `holidaysByTeam` and `weeklyOffByTeam` maps
+ * keyed on the team a user held **on each date** — the keying that makes a
+ * mid-period team move come out right (`FR-3.9`). These two resolve which
+ * calendar a team is assigned to and delegate, so that keying survives the
+ * move to shared calendars and no pure function changes.
+ *
+ * A team with no calendar reads as no holidays and no weekly off. Never a
+ * weekend: `FR-3.8` exists to forbid exactly that assumption (`D-29`).
+ */
+export async function listHolidaysForTeam(
+  teamId,
+  { includeDeleted = false, companyId = DEFAULT_COMPANY_ID } = {},
+) {
+  const team = await getTeamById(teamId, companyId);
+  return listCalendarHolidays(team?.calendarId ?? null, {
+    includeDeleted,
+    companyId,
+  });
+}
+
+export async function getWeeklyOffPatternForTeam(
+  teamId,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const team = await getTeamById(teamId, companyId);
+  return getCalendarWeeklyOff(team?.calendarId ?? null, companyId);
 }
 
 // --- Team policy -----------------------------------------------------------
@@ -3183,8 +3556,13 @@ export async function updateTeamPolicy(
 }
 
 /**
- * Everything S-17 renders, in one read: the team, its shifts, its calendar,
- * its weekly off pattern, its policy, and every value still outstanding.
+ * Everything S-17 renders, in one read: the team, its shifts, the calendar it
+ * is ASSIGNED to with that calendar's holidays and weekly off pattern, its
+ * policy, and every value still outstanding.
+ *
+ * The calendar and the pattern are read through the team's assignment and are
+ * read-only on S-17 — `S-26` owns them, because a calendar is shared and
+ * editing it from one team's screen would hide that (`FR-3.7`, `D-31`).
  *
  * The gaps come from `policyCompleteness`, which S-05 also calls in Phase 6 —
  * so the inline flag on this screen and the queued exception can never
@@ -3197,22 +3575,28 @@ export async function getTeamConfiguration(
   const team = await getTeamById(teamId, companyId);
   if (!team) return null;
 
+  const calendar = team.calendarId
+    ? await getHolidayCalendarById(team.calendarId, companyId)
+    : null;
+
   const [shifts, holidays, weeklyOffPattern, policy] = await Promise.all([
     listShifts(teamId, { companyId }),
-    listHolidays(teamId, { companyId }),
-    getWeeklyOffPattern(teamId, companyId),
+    listCalendarHolidays(team.calendarId ?? null, { companyId }),
+    getCalendarWeeklyOff(team.calendarId ?? null, companyId),
     getTeamPolicy(teamId, companyId),
   ]);
 
   return {
     team,
     shifts: shifts.items,
+    calendar,
     holidays: holidays.items,
     weeklyOffPattern,
     policy,
     gaps: missingConfiguration({
       team,
       shifts: shifts.items,
+      calendar,
       weeklyOffPattern,
       policy,
     }),
@@ -4570,8 +4954,13 @@ export async function loadRecalculationInputs(
 
   for (const teamId of teamIds) {
     policyByTeam[teamId] = (await getTeamPolicy(teamId, companyId)) ?? {};
-    holidaysByTeam[teamId] = (await listHolidays(teamId, { companyId })).items;
-    weeklyOffByTeam[teamId] = await getWeeklyOffPattern(teamId, companyId);
+    holidaysByTeam[teamId] = (
+      await listHolidaysForTeam(teamId, { companyId })
+    ).items;
+    weeklyOffByTeam[teamId] = await getWeeklyOffPatternForTeam(
+      teamId,
+      companyId,
+    );
   }
 
   const dayRecords = await listDayRecords({
@@ -6054,6 +6443,92 @@ export async function migrateLegacyTeamKeys(
   }
 
   return { migrated };
+}
+
+/**
+ * `D-34`. One-shot move of the per-team calendars written before `FR-3.7`
+ * made a calendar a company-wide record.
+ *
+ * For each team holding at least one holiday or a weekly off pattern it
+ * creates `<Team name> calendar`, stamps `calendarId` on those records, and
+ * assigns the team. Nothing is merged: four seeded teams observe deliberately
+ * different days, and a script cannot know which of those differences were
+ * intentional. Administrators merge down to two or three on `S-26`.
+ *
+ * Runs alongside `migrateLegacyTeamKeys` in the seed. The unique index on
+ * `(companyId, calendarId)` is partial on `calendarId` being a string
+ * precisely so it can build against a database this has not reached yet —
+ * otherwise several un-migrated patterns would collide on a shared null and
+ * the migration could never run.
+ *
+ * A record whose team no longer exists keeps its data and finds no calendar to
+ * move to — nothing is destroyed (`I-1`).
+ *
+ * Idempotent: after one run no holiday or pattern carries `teamId`, so the
+ * filters match nothing.
+ */
+export async function migrateTeamCalendars(
+  actor,
+  companyId = DEFAULT_COMPANY_ID,
+) {
+  const db = await getDb();
+  const counts = {
+    calendarsCreated: 0,
+    holidaysMoved: 0,
+    patternsMoved: 0,
+    teamsAssigned: 0,
+  };
+
+  const teamIds = [
+    ...new Set([
+      ...(await db
+        .collection(COLLECTIONS.HOLIDAYS)
+        .distinct('teamId', { companyId, teamId: { $type: 'string' } })),
+      ...(await db
+        .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
+        .distinct('teamId', { companyId, teamId: { $type: 'string' } })),
+    ]),
+  ].filter(Boolean);
+
+  for (const teamId of teamIds) {
+    const team = await getTeamById(teamId, companyId);
+    if (!team) continue;
+
+    const calendar = await createHolidayCalendar(
+      { name: `${team.name} calendar` },
+      actor,
+      companyId,
+    );
+    counts.calendarsCreated += 1;
+
+    const calendarId = String(calendar._id);
+
+    const holidays = await db
+      .collection(COLLECTIONS.HOLIDAYS)
+      .updateMany(
+        { companyId, teamId },
+        { $set: { calendarId }, $unset: { teamId: '' } },
+      );
+    counts.holidaysMoved += holidays.modifiedCount;
+
+    const patterns = await db
+      .collection(COLLECTIONS.WEEKLY_OFF_PATTERNS)
+      .updateMany(
+        { companyId, teamId },
+        { $set: { calendarId }, $unset: { teamId: '' } },
+      );
+    counts.patternsMoved += patterns.modifiedCount;
+
+    const { joined } = await setCalendarTeams(
+      calendarId,
+      [teamId],
+      actor,
+      companyId,
+    );
+    counts.teamsAssigned += joined.length;
+  }
+
+  return counts;
 }
 
 /**

@@ -17,18 +17,21 @@ import { useState } from 'react';
 import { useOrgMutations } from '../hooks/useOrgMutations.js';
 import { EmptyState } from './EmptyState.jsx';
 import { PageHeader } from './PageHeader.jsx';
-import { HolidaysPanel } from './team/HolidaysPanel.jsx';
+import { AssignedCalendarPanel } from './team/AssignedCalendarPanel.jsx';
 import { LaddersPanel } from './team/LaddersPanel.jsx';
 import { LeavePolicyPanel } from './team/LeavePolicyPanel.jsx';
 import { PolicyFieldsForm } from './team/PolicyFieldsForm.jsx';
 import { ShiftsPanel } from './team/ShiftsPanel.jsx';
-import { WeeklyOffPanel } from './team/WeeklyOffPanel.jsx';
 
+/**
+ * Six, not seven. The holidays and the weekly off used to be two editable tabs
+ * here; they are now one read-only tab, because a calendar is shared across
+ * teams and `S-26` owns it (`FR-3.7`, `D-31`).
+ */
 const TABS = [
   'Members',
   'Shifts',
   'Holiday calendar',
-  'Weekly off',
   'Leave policy',
   'Ladders',
   'Thresholds & windows',
@@ -139,8 +142,16 @@ export function TeamConfiguration({ configuration, users, canWrite }) {
   const { conflict, dismissConflict, setPolicy, updateTeam, pending, error } =
     mutations;
 
-  const { team, shifts, holidays, weeklyOffPattern, policy, gaps, members } =
-    configuration;
+  const {
+    team,
+    shifts,
+    calendar,
+    holidays,
+    weeklyOffPattern,
+    policy,
+    gaps,
+    members,
+  } = configuration;
 
   return (
     <Stack spacing={3}>
@@ -222,24 +233,14 @@ export function TeamConfiguration({ configuration, users, canWrite }) {
       ) : null}
 
       {tab === 2 ? (
-        <HolidaysPanel
+        <AssignedCalendarPanel
+          calendar={calendar}
           holidays={holidays}
-          canWrite={canWrite}
-          mutations={mutations}
-          teamId={team._id}
+          weeklyOffPattern={weeklyOffPattern}
         />
       ) : null}
 
       {tab === 3 ? (
-        <WeeklyOffPanel
-          pattern={weeklyOffPattern}
-          canWrite={canWrite}
-          mutations={mutations}
-          teamId={team._id}
-        />
-      ) : null}
-
-      {tab === 4 ? (
         <LeavePolicyPanel
           policy={policy}
           canWrite={canWrite}
@@ -248,7 +249,7 @@ export function TeamConfiguration({ configuration, users, canWrite }) {
         />
       ) : null}
 
-      {tab === 5 ? (
+      {tab === 4 ? (
         <LaddersPanel
           policy={policy}
           canWrite={canWrite}
@@ -257,7 +258,7 @@ export function TeamConfiguration({ configuration, users, canWrite }) {
         />
       ) : null}
 
-      {tab === 6 ? (
+      {tab === 5 ? (
         <Stack spacing={2}>
           <Alert severity='info'>
             Saving these triggers recalculation from their effective date. Any

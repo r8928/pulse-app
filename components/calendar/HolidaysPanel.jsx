@@ -125,8 +125,14 @@ function HolidayDialog({ open, onClose, onSubmit, pending, error, initial }) {
   );
 }
 
-/** P-31. Each team keeps its own calendar (`FR-3.7`). */
-export function HolidaysPanel({ holidays, canWrite, mutations, teamId }) {
+/**
+ * P-31. One calendar's holidays (`FR-3.7`).
+ *
+ * The calendar is shared, so an edit here reaches every team assigned to it.
+ * The copy says so: an administrator who believes they are changing one
+ * team's days would make a change they did not intend.
+ */
+export function HolidaysPanel({ holidays, canWrite, mutations, calendarId }) {
   const [editing, setEditing] = useState(null);
   const [removing, setRemoving] = useState(null);
   const { createHoliday, updateHoliday, softDeleteHoliday, pending, error } =
@@ -140,9 +146,9 @@ export function HolidaysPanel({ holidays, canWrite, mutations, teamId }) {
         sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}
       >
         <Typography variant='body2' color='text.secondary'>
-          This team’s calendar only. Two teams observe different holidays on the
-          same date, and each entry is typed rather than distinguished by
-          colour.
+          Every team assigned to this calendar observes these days. Two teams on
+          different calendars observe different holidays on the same date, and
+          each entry is typed rather than distinguished by colour.
         </Typography>
         {canWrite ? (
           <Button variant='contained' onClick={() => setEditing({})}>
@@ -153,8 +159,8 @@ export function HolidaysPanel({ holidays, canWrite, mutations, teamId }) {
 
       <Alert severity='info'>
         Editing the calendar mid-year is legitimate and recalculates the dates
-        it touches. Any override an administrator put on one of those days
-        survives it.
+        it touches, for every team on this calendar. Any override an
+        administrator put on one of those days survives it.
       </Alert>
 
       {holidays.length === 0 ? (
@@ -223,7 +229,7 @@ export function HolidaysPanel({ holidays, canWrite, mutations, teamId }) {
         onSubmit={(data) =>
           editing?._id
             ? updateHoliday(editing._id, { ...data, version: editing.version })
-            : createHoliday({ ...data, teamId })
+            : createHoliday({ ...data, calendarId })
         }
         initial={editing?._id ? editing : null}
         pending={pending}

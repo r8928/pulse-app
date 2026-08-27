@@ -18,8 +18,8 @@ const reportsRoute = await import('../app/api/reports/route.js');
 const annualRoute = await import('../app/api/reports/annual/route.js');
 const exportRoute = await import('../app/api/reports/export/route.js');
 
-const { createShift, createTeam, createUser, setWeeklyOffPattern } =
-  await import('../database.js');
+const { createShift, createTeam, createUser } = await import('../database.js');
+const { giveTeamACalendar } = await import('../test/calendar.js');
 
 const held = (...names) =>
   Object.fromEntries(names.map((name) => [name, SCOPES.ALL]));
@@ -72,7 +72,7 @@ describe('the reports API', () => {
       },
       actor,
     );
-    await setWeeklyOffPattern(teamId, { daysOfWeek: [0, 6] }, null, actor);
+    await giveTeamACalendar(teamId, { daysOfWeek: [0, 6] }, actor);
 
     return createUser(
       {

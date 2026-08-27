@@ -10,6 +10,8 @@ import {
   getPermissionGrants,
   getSeedIdsByKey,
   migrateLegacyTeamKeys,
+  migrateTeamCalendars,
+  setCalendarTeams,
   upsertSeed,
   upsertSeedUser,
 } from '../database.js';
@@ -28,6 +30,15 @@ import {
  * rather than guessed, because DC-6 forbids defaulting a value like this and a
  * wrong domain locks everyone out.
  */
+
+/**
+ * Who the audit trail names for the writes this script makes through the
+ * ordinary query functions rather than through `upsertSeed`'s bulk writes.
+ *
+ * Not a real user, and deliberately not the first administrator: attributing
+ * a machine's write to a person makes the audit log lie about who decided it.
+ */
+const seedActor = { userId: 'seed', name: 'Seed script' };
 
 const adminEmail = process.env.SEED_ADMIN_EMAIL;
 
@@ -260,48 +271,53 @@ const shifts = [
 ];
 
 /**
- * FR-3.7 and BR-15: each team keeps its own calendar, so two teams observe
- * different holidays on the same date. Seeded differently on purpose — MVP
- * criterion 13 requires two teams to produce different working-day counts.
+ * FR-3.7, FR-3.8 and BR-15: calendars are company-wide records that teams are
+ * assigned to, and a calendar carries both the holidays and the weekly off.
+ *
+ * Two are seeded rather than one per team, which is the point of the shared
+ * model — but they observe deliberately different days, because MVP criterion
+ * 13 requires two teams to produce different working-day counts. `serves`
+ * names the teams assigned; a calendar is never created automatically with a
+ * team.
  */
-const holidays = [
+const holidayCalendars = [
   {
-    teamKey: 'GENERAL',
-    date: '2026-03-23',
-    name: 'Public holiday',
-    type: HOLIDAY_TYPE.PUBLIC,
+    key: 'PAKISTAN',
+    name: 'Pakistan calendar',
+    serves: ['GENERAL', 'GC'],
+    daysOfWeek: [6, 0],
+    holidays: [
+      {
+        date: '2026-03-23',
+        name: 'Public holiday',
+        type: HOLIDAY_TYPE.PUBLIC,
+      },
+      {
+        date: '2026-12-25',
+        name: 'Company holiday',
+        type: HOLIDAY_TYPE.COMPANY,
+      },
+    ],
   },
   {
-    teamKey: 'GENERAL',
-    date: '2026-12-25',
-    name: 'Company holiday',
-    type: HOLIDAY_TYPE.COMPANY,
-  },
-  {
-    teamKey: 'GC',
-    date: '2026-03-23',
-    name: 'Public holiday',
-    type: HOLIDAY_TYPE.PUBLIC,
-  },
-  {
-    teamKey: 'SALES_MARKETING',
-    date: '2026-07-04',
-    name: 'Public holiday',
-    type: HOLIDAY_TYPE.PUBLIC,
-  },
-  {
-    teamKey: 'SALES_MARKETING',
-    date: '2026-11-26',
-    name: 'Public holiday',
-    type: HOLIDAY_TYPE.PUBLIC,
+    key: 'US',
+    name: 'US calendar',
+    serves: ['SALES_MARKETING'],
+    daysOfWeek: [0, 6],
+    holidays: [
+      {
+        date: '2026-07-04',
+        name: 'Public holiday',
+        type: HOLIDAY_TYPE.PUBLIC,
+      },
+      {
+        date: '2026-11-26',
+        name: 'Public holiday',
+        type: HOLIDAY_TYPE.PUBLIC,
+      },
+    ],
   },
 ];
-
-/** FR-3.8: not assumed to be Saturday and Sunday. Set per team. */
-const weeklyOffPatterns = teams.map((team) => ({
-  teamKey: team.key,
-  daysOfWeek: team.key === 'SALES_MARKETING' ? [0, 6] : [6, 0],
-}));
 
 /**
  * The real administrators, and nobody else.
@@ -379,6 +395,16 @@ async function seed() {
     );
   }
 
+  // D-34: holidays and weekly off patterns written while a calendar belonged
+  // to a team move onto a calendar of that team's own, which an administrator
+  // then merges down on S-26. Nothing is merged automatically.
+  const moved = await migrateTeamCalendars(seedActor);
+  if (moved.calendarsCreated > 0) {
+    console.warn(
+      `Moved ${moved.holidaysMoved} holidays and ${moved.patternsMoved} weekly off patterns onto ${moved.calendarsCreated} new per-team calendars.`,
+    );
+  }
+
   console.warn('Ensuring indexes...');
   await ensureIndexes();
 
@@ -442,22 +468,42 @@ async function seed() {
   );
 
   await upsertSeed(
+    COLLECTIONS.HOLIDAY_CALENDARS,
+    holidayCalendars.map(({ key, name }) => ({ key, name })),
+    ['key'],
+  );
+
+  const calendarIdByKey = await getSeedIdsByKey(COLLECTIONS.HOLIDAY_CALENDARS);
+
+  await upsertSeed(
     COLLECTIONS.HOLIDAYS,
-    holidays.map(({ teamKey, ...holiday }) => ({
-      ...holiday,
-      teamId: teamIdByKey[teamKey],
-    })),
-    ['teamId', 'date'],
+    holidayCalendars.flatMap((calendar) =>
+      calendar.holidays.map((holiday) => ({
+        ...holiday,
+        calendarId: calendarIdByKey[calendar.key],
+      })),
+    ),
+    ['calendarId', 'date'],
   );
 
   await upsertSeed(
     COLLECTIONS.WEEKLY_OFF_PATTERNS,
-    weeklyOffPatterns.map(({ teamKey, ...pattern }) => ({
-      ...pattern,
-      teamId: teamIdByKey[teamKey],
+    holidayCalendars.map((calendar) => ({
+      calendarId: calendarIdByKey[calendar.key],
+      daysOfWeek: calendar.daysOfWeek,
     })),
-    ['teamId'],
+    ['calendarId'],
   );
+
+  // FR-3.7: which teams observe which calendar. Assigned here rather than
+  // defaulted — a team named on no calendar stays outstanding on S-05.
+  for (const calendar of holidayCalendars) {
+    await setCalendarTeams(
+      calendarIdByKey[calendar.key],
+      calendar.serves.map((teamKey) => teamIdByKey[teamKey]),
+      seedActor,
+    );
+  }
 
   await upsertSeed(
     COLLECTIONS.TEAM_POLICY,

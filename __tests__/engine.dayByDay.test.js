@@ -9,12 +9,12 @@ import {
   postLedgerEntries,
   postOpeningBalance,
   setPunchDerivedFields,
-  setWeeklyOffPattern,
   softDeleteUser,
   updateTeamPolicy,
   upsertDayRecord,
 } from '../database.js';
 import { buildDayByDay } from '../engine/dayByDay.js';
+import { giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -50,7 +50,7 @@ describe('engine/dayByDay', () => {
       },
       actor,
     );
-    await setWeeklyOffPattern(teamId, { daysOfWeek: [0, 6] }, null, actor);
+    await giveTeamACalendar(teamId, { daysOfWeek: [0, 6] }, actor);
     await updateTeamPolicy(teamId, {}, null, actor);
 
     return { teamId, shiftId: String(shift._id) };

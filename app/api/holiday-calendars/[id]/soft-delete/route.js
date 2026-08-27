@@ -6,16 +6,16 @@ import {
   requireActor,
 } from '../../../../../authz/guard.js';
 import { PERMISSIONS } from '../../../../../constants/index.js';
-import {
-  listTeamsOnCalendar,
-  softDeleteHoliday,
-} from '../../../../../database.js';
-import { recalculateDays } from '../../../../../engine/recalculate.js';
+import { softDeleteHolidayCalendar } from '../../../../../database.js';
 import { errorResponse } from '../../../../../utils/apiResponse.js';
 
 /**
- * P-31's removal. Soft delete, so a day record computed while the date was a
- * holiday can still explain why.
+ * `S-26`'s removal, refused while any team is still assigned (`D-30`). The
+ * `ValidationError` naming those teams becomes a 400 through `errorResponse`
+ * with no special handling here.
+ *
+ * No recalculation: a calendar reaching this point serves no team, so no day
+ * record was classified against it.
  */
 export async function POST(request, { params }) {
   try {
@@ -25,18 +25,10 @@ export async function POST(request, { params }) {
     assertRecordInScope(scope, actor, COMPANY_WIDE);
 
     const { version, ...body } = await request.json();
-    const removed = await softDeleteHoliday(id, body, version, actor);
+    const removed = await softDeleteHolidayCalendar(id, body, version, actor);
 
     if (!removed) {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-    }
-
-    for (const team of await listTeamsOnCalendar(removed.calendarId)) {
-      await recalculateDays(
-        null,
-        { from: removed.date, to: removed.date },
-        { teamId: String(team._id) },
-      );
     }
 
     return NextResponse.json(removed);

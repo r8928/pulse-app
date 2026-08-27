@@ -19,7 +19,6 @@ import {
   getPtoAwardForDate,
   listLedgerEntriesForSource,
   setDayOverride,
-  setWeeklyOffPattern,
   softDeletePunch,
   updatePunch,
   updateTeamPolicy,
@@ -27,6 +26,7 @@ import {
 } from '../database.js';
 import { approvePtoAward } from '../engine/pto.js';
 import { recalculateDays } from '../engine/recalculate.js';
+import { calendarIdForTeam, giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -104,12 +104,7 @@ describe('recalculateDays', () => {
       null,
       actor,
     );
-    await setWeeklyOffPattern(
-      String(team._id),
-      { daysOfWeek: [0, 6] },
-      null,
-      actor,
-    );
+    await giveTeamACalendar(String(team._id), { daysOfWeek: [0, 6] }, actor);
 
     const shift = await createShift(
       {
@@ -326,7 +321,7 @@ describe('recalculateDays', () => {
     const { team, userId } = await aTrackedUserOnADayShift();
     await createHoliday(
       {
-        teamId: String(team._id),
+        calendarId: await calendarIdForTeam(String(team._id)),
         name: 'Independence Day',
         date: '2026-08-14',
         type: 'PUBLIC',

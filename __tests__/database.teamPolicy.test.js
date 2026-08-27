@@ -1,21 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { HOLIDAY_TYPE } from '../constants/index.js';
 import {
-  createHoliday,
   createShift,
   createTeam,
   getTeamConfiguration,
   getTeamPolicy,
-  listHolidays,
   listShifts,
   StaleWriteError,
-  setWeeklyOffPattern,
-  softDeleteHoliday,
   softDeleteShift,
   updateShift,
   updateTeamPolicy,
   ValidationError,
 } from '../database.js';
+import { giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -164,177 +160,6 @@ describe('shifts', () => {
   });
 });
 
-describe('holidays', () => {
-  useTestDatabase();
-
-  it('creates a typed holiday for one team only', async () => {
-    // FR-3.7: two teams observe different holidays on the same date.
-    const general = await team();
-    const other = await createTeam({ name: 'GC' }, actor);
-
-    await createHoliday(
-      {
-        teamId: String(general._id),
-        date: '2026-03-23',
-        name: 'Public holiday',
-        type: HOLIDAY_TYPE.PUBLIC,
-      },
-      actor,
-    );
-
-    expect((await listHolidays(String(general._id))).total).toBe(1);
-    expect((await listHolidays(String(other._id))).total).toBe(0);
-  });
-
-  it('refuses a holiday with no type, so nothing depends on colour', async () => {
-    // FR-3.7: a calendar shall never depend on formatting or colour, which
-    // means the type is a stored value rather than a visual convention.
-    const general = await team();
-
-    await expect(
-      createHoliday(
-        {
-          teamId: String(general._id),
-          date: '2026-03-23',
-          name: 'Something',
-          type: 'BANK_HOLIDAY',
-        },
-        actor,
-      ),
-    ).rejects.toThrow(ValidationError);
-  });
-
-  it('refuses a date that is not a calendar date', async () => {
-    const general = await team();
-
-    await expect(
-      createHoliday(
-        {
-          teamId: String(general._id),
-          date: '23-03-2026',
-          name: 'Public holiday',
-          type: HOLIDAY_TYPE.PUBLIC,
-        },
-        actor,
-      ),
-    ).rejects.toThrow(ValidationError);
-  });
-
-  it('refuses a second holiday on a date the team already observes', async () => {
-    const general = await team();
-    const entry = {
-      teamId: String(general._id),
-      date: '2026-03-23',
-      name: 'Public holiday',
-      type: HOLIDAY_TYPE.PUBLIC,
-    };
-
-    await createHoliday(entry, actor);
-    await expect(createHoliday(entry, actor)).rejects.toThrow(/2026-03-23/);
-  });
-
-  it('soft deletes a holiday rather than destroying it', async () => {
-    const general = await team();
-    const holiday = await createHoliday(
-      {
-        teamId: String(general._id),
-        date: '2026-03-23',
-        name: 'Public holiday',
-        type: HOLIDAY_TYPE.PUBLIC,
-      },
-      actor,
-    );
-
-    await softDeleteHoliday(
-      String(holiday._id),
-      { reason: 'Announced in error' },
-      holiday.version,
-      actor,
-    );
-
-    expect((await listHolidays(String(general._id))).total).toBe(0);
-    expect(
-      (await listHolidays(String(general._id), { includeDeleted: true })).total,
-    ).toBe(1);
-  });
-});
-
-describe('weekly off pattern', () => {
-  useTestDatabase();
-
-  it('stores the days a team does not work', async () => {
-    // FR-3.8: not assumed to be Saturday and Sunday.
-    const general = await team();
-
-    const pattern = await setWeeklyOffPattern(
-      String(general._id),
-      { daysOfWeek: [5, 6] },
-      null,
-      actor,
-    );
-
-    expect(pattern.daysOfWeek).toEqual([5, 6]);
-  });
-
-  it('accepts a team that works every day', async () => {
-    const general = await team();
-    const pattern = await setWeeklyOffPattern(
-      String(general._id),
-      { daysOfWeek: [] },
-      null,
-      actor,
-    );
-
-    expect(pattern.daysOfWeek).toEqual([]);
-  });
-
-  it('refuses a day outside Sunday to Saturday', async () => {
-    const general = await team();
-
-    await expect(
-      setWeeklyOffPattern(
-        String(general._id),
-        { daysOfWeek: [7] },
-        null,
-        actor,
-      ),
-    ).rejects.toThrow(ValidationError);
-  });
-
-  it('refuses the same day twice', async () => {
-    const general = await team();
-
-    await expect(
-      setWeeklyOffPattern(
-        String(general._id),
-        { daysOfWeek: [0, 0] },
-        null,
-        actor,
-      ),
-    ).rejects.toThrow(ValidationError);
-  });
-
-  it('replaces the pattern in place, one per team', async () => {
-    const general = await team();
-    const first = await setWeeklyOffPattern(
-      String(general._id),
-      { daysOfWeek: [6, 0] },
-      null,
-      actor,
-    );
-
-    const second = await setWeeklyOffPattern(
-      String(general._id),
-      { daysOfWeek: [5] },
-      first.version,
-      actor,
-    );
-
-    expect(second.daysOfWeek).toEqual([5]);
-    expect(second.version).toBe(2);
-  });
-});
-
 describe('team policy', () => {
   useTestDatabase();
 
@@ -420,17 +245,14 @@ describe('getTeamConfiguration', () => {
   it('gathers everything S-17 shows in one read', async () => {
     const general = await team();
     await createShift({ ...shiftInput(), teamId: String(general._id) }, actor);
-    await setWeeklyOffPattern(
-      String(general._id),
-      { daysOfWeek: [6, 0] },
-      null,
-      actor,
-    );
+    await giveTeamACalendar(String(general._id), { daysOfWeek: [6, 0] }, actor);
 
     const configuration = await getTeamConfiguration(String(general._id));
 
     expect(configuration.team.name).toBe('General');
     expect(configuration.shifts).toHaveLength(1);
+    // FR-3.7: read through the calendar the team is assigned to, not its own.
+    expect(configuration.calendar).not.toBeNull();
     expect(configuration.weeklyOffPattern.daysOfWeek).toEqual([6, 0]);
     expect(configuration.policy).toBeNull();
   });
@@ -445,7 +267,7 @@ describe('getTeamConfiguration', () => {
         'managerId',
         'shifts',
         'defaultShiftId',
-        'weeklyOffPattern',
+        'calendarId',
         'midnightCrossingWindowHours',
         'duplicatePunchWindowMinutes',
       ]),

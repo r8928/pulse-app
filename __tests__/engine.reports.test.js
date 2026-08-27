@@ -8,7 +8,6 @@ import {
   getTeamPolicy,
   listShifts,
   postOpeningBalance,
-  setWeeklyOffPattern,
   softDeleteUser,
   updateTeamPolicy,
   upsertDayRecord,
@@ -17,6 +16,7 @@ import {
   buildAnnualSummary,
   buildAttendanceSummary,
 } from '../engine/reports.js';
+import { calendarIdForTeam, giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -53,7 +53,7 @@ describe('engine/reports', () => {
       },
       actor,
     );
-    await setWeeklyOffPattern(teamId, { daysOfWeek: [0, 6] }, null, actor);
+    await giveTeamACalendar(teamId, { daysOfWeek: [0, 6] }, actor);
     await updateTeamPolicy(teamId, {}, null, actor);
 
     return team;
@@ -117,7 +117,7 @@ describe('engine/reports', () => {
       const team = await aTeam();
       await createHoliday(
         {
-          teamId: String(team._id),
+          calendarId: await calendarIdForTeam(String(team._id)),
           date: '2026-08-12',
           name: 'Independence Day',
           type: 'PUBLIC',

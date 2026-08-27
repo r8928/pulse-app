@@ -3,14 +3,14 @@
 Derived from `spec.md`. Every screen and popup here traces to at least one requirement, and
 [§6 Coverage matrix](#6-coverage-matrix) proves the reverse: that every `FR-` requirement has a home.
 
-**Totals — 9 modules · 22 screens · 47 popups.** Post-MVP adds 3 screens and 2 popups.
+**Totals — 9 modules · 23 screens · 47 popups.** Post-MVP adds 3 screens and 2 popups.
 
 **By delivery phase** (`spec.md` §2.3), so the size of each phase is visible before it starts:
 
 | Phase | Screens | Popups |
 | ----- | ------- | ------ |
 | `✔` delivered | 4 | 5 |
-| `P4` basic | 7 | 25 |
+| `P4` basic | 8 | 25 |
 | `P5` intermediate | 6 | 8 |
 | `P6` complex | 5 | 9 |
 | `PM` post-MVP | 3 | 2 |
@@ -64,6 +64,8 @@ Three rules govern the whole inventory:
 ├── /teams                 S-16  P4  Teams                     M-6
 │   └── /teams/[id]        S-17  P4  Team configuration
 ├── /settings              S-18  P4  Company configuration     M-7
+│   ├── /settings/holiday-calendars
+│   │                      S-26  P4  Holiday calendars
 │   └── /settings/access   S-19  P4  Access control matrix
 └── /audit                 S-22  P4  Audit log                 M-9
 
@@ -376,16 +378,17 @@ redeploy (`DC-1`), and every value shown at seed is only a seed (`§3.10`).
   | --- | ----- | ---- |
   | Members | Users assigned to this team, and the manager | `FR-3.1` |
   | Shifts | Named shifts: start, end, required duration, grace, timezone; the team default | `FR-3.3`, `FR-3.4`, `BR-1`–`BR-4`, `BR-7` |
-  | Holiday calendar | Typed entries: public holiday, company holiday | `FR-3.7`, `BR-15` |
-  | Weekly off | The team's non-working-day pattern | `FR-3.8` |
+  | Holiday calendar | **Read only.** The calendar this team is assigned to, its typed entries and its non-working-day pattern, linking to `S-26`. Editing happens there, because the calendar is shared with other teams | `FR-3.7`, `FR-3.8`, `BR-15` |
   | Leave policy | Leave types, annual entitlement, accrual period, carry forward, and the type automatic deductions post to | `FR-6.2`, `FR-6.3`, `FR-6.6`, `BR-12`, `BR-13` |
   | Ladders | Leave Deduction Ladder, PTO award ladder and validity period, CTO application ladder | `FR-6.3`, `FR-7.2`, `FR-7.3`, `FR-7.5`, `BR-9`, `BR-18`–`BR-26` |
   | Thresholds & windows | WFH quota, short-day threshold, holiday-work threshold, midnight-crossing window, duplicate-punch window | `FR-5.5`, `FR-5.7`, `FR-5.8`, `FR-4.7`, `BR-5`, `BR-16`, `BR-17`, `BR-27` |
 
-- **Popups** `P-30` `P-31` `P-32` `P-33` `P-34` `P-35` `P-36` `P-37` `P-38` `P-39` `P-46` `P-47`
+- **Popups** `P-30` `P-33` `P-34` `P-35` `P-36` `P-37` `P-38` `P-39` `P-46` `P-47` — `P-31` and `P-32` move
+  to `S-26` with the calendar they edit
 - **States** Any unset required value is flagged inline *and* raised on `S-05` until set — never guessed or
-  defaulted (`FR-3.13`, `DC-6`). Saving a policy change warns that it triggers recalculation from its
-  effective date, and that existing overrides survive it (`FR-6.12`).
+  defaulted (`FR-3.13`, `DC-6`). A team assigned to no calendar is one such value. Saving a policy change
+  warns that it triggers recalculation from its effective date, and that existing overrides survive it
+  (`FR-6.12`).
 
 ---
 
@@ -400,10 +403,33 @@ Holds the company-wide half of the `FR-6.4` list.
 - **Access** `config.read` at `ALL`; edits need `config.write`.
 - **Spec** `FR-2.6`, `FR-1.5`, `FR-6.4`
 - **Sections** Employment types — `PERMANENT`, `CONTRACT`, `SUPPORT_STAFF`, `INTERN` seeded, and no permission
-  depends on any of them · Authorised Google Workspace domains for sign in.
+  depends on any of them · Authorised Google Workspace domains for sign in · a link to `S-26`, the holiday
+  calendars every team observes.
 - **Popups** `P-40` `P-41` `P-46`
 - **States** Note: there is no company-wide default timezone and none can be set here — every timestamp
   resolves through the shift's own timezone (`FR-3.10`, `DC-5`).
+
+#### S-26 · Holiday calendars · `P4`
+
+- **Route** `/settings/holiday-calendars`
+- **Purpose** The holiday calendars the whole company observes, and which team sits on which. Two or three
+  calendars serve fifteen to twenty teams, so a calendar is shared and none of them owns it.
+- **Access** `config.read` at `ALL`; every edit needs `config.write`.
+- **Spec** `FR-3.7`, `FR-3.8`, `BR-15`
+- **Sub-views (tabs, per calendar)**
+
+  | Tab | Holds | Spec |
+  | --- | ----- | ---- |
+  | Holidays | Typed entries: public holiday, company holiday | `FR-3.7`, `BR-15` |
+  | Weekly off | The calendar's non-working-day pattern, applying to every team on it | `FR-3.8` |
+  | Teams | Which teams observe this calendar. Assigning a team already on another moves it — a team holds exactly one | `FR-3.7` |
+
+- **Behaviour** A calendar is never created automatically when a team is created. Removing one is refused
+  while any team is still assigned, and the refusal names them: the click is one action but the consequence
+  is every team on it losing its working week at once. Every edit recalculates the affected dates for every
+  assigned team, and a team assignment change recalculates both the team joining and the team leaving.
+- **Popups** `P-31` `P-32` `P-46` `P-47`
+- **States** Empty: no calendar exists yet, so every team is unconfigured until one is created and assigned.
 
 #### S-19 · Access control matrix · `P4`
 
@@ -545,8 +571,8 @@ Reused across many screens rather than belonging to one.
 | `P-28` | `P4` | Create or edit team | Names exactly one manager. | `FR-3.1`, `FR-3.2` |
 | `P-29` | `P4` | Soft delete team | Rejected while any user who is not soft deleted is still assigned, naming those users so they can be moved first. A team with only past assignments may be soft deleted. | `FR-3.2` |
 | `P-30` | `P4` | Shift | Name, start time, end time, required daily duration, grace period, timezone. Create, edit, soft delete; set the team default. | `FR-3.3`, `FR-3.4`, `BR-1`–`BR-4`, `BR-7` |
-| `P-31` | `P4` | Holiday | Date and type: public holiday or company holiday. Never depends on formatting or colour. A mid-year correction triggers recalculation of the affected dates. | `FR-3.7`, `BR-15` |
-| `P-32` | `P4` | Weekly off pattern | Which days of the week are non-working for this team; not assumed to be Saturday and Sunday. | `FR-3.8` |
+| `P-31` | `P4` | Holiday | Date and type: public holiday or company holiday. Never depends on formatting or colour. A mid-year correction triggers recalculation of the affected dates for every team assigned to the calendar. | `FR-3.7`, `BR-15` |
+| `P-32` | `P4` | Weekly off pattern | Which days of the week are non-working on this calendar, and so for every team assigned to it; not assumed to be Saturday and Sunday. | `FR-3.8` |
 | `P-33` | `P4` | Leave types and entitlement | Types and their annual entitlement, seeded 10 Annual, 10 Sick, 10 Casual. | `FR-6.2`, `BR-12` |
 | `P-34` | `P4` | Accrual and carry forward | Accrual period, seeded to the leave year, and the carry-forward policy. | `FR-6.6`, `BR-13` |
 | `P-35` | `P4` | Leave Deduction Ladder | The bands, plus the single leave type automatic deductions post to (seeded Casual). Bands are percentages of the scheduled shift, not absolute hours. | `FR-6.3`, `BR-9`, `BR-26` |
@@ -608,8 +634,8 @@ side you came from.
 | `FR-3.4` | `P-30`, `P-12` |
 | `FR-3.5` | `S-12` |
 | `FR-3.6` | `P-12`, `S-07` (Shift assignments) |
-| `FR-3.7` | `S-17` (Holiday calendar), `P-31` |
-| `FR-3.8` | `S-17` (Weekly off), `P-32` |
+| `FR-3.7` | `S-26` (Holidays, Teams), `P-31` · `S-17` (Holiday calendar, read only) |
+| `FR-3.8` | `S-26` (Weekly off), `P-32` · `S-17` (Holiday calendar, read only) |
 | `FR-3.9` | `S-20`, `S-21` |
 | `FR-3.10` | `P-30`, `S-18` |
 | `FR-3.11` | `S-12`, `P-21` |

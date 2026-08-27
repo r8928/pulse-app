@@ -17,7 +17,6 @@ import {
   recordImportExceptions,
   setDayOverride,
   setPunchDerivedFields,
-  setWeeklyOffPattern,
   softDeleteUser,
   updateTeamPolicy,
   upsertCtoCandidate,
@@ -30,6 +29,7 @@ import {
 } from '../engine/exceptions.js';
 import { approvePtoAward } from '../engine/pto.js';
 import { checkReduction } from '../engine/reduction.js';
+import { giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -69,7 +69,7 @@ describe('engine/exceptions', () => {
       },
       actor,
     );
-    await setWeeklyOffPattern(teamId, { daysOfWeek: [0, 6] }, null, actor);
+    await giveTeamACalendar(teamId, { daysOfWeek: [0, 6] }, actor);
     await updateTeamPolicy(teamId, policy, null, actor);
 
     return team;

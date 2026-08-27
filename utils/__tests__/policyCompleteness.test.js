@@ -23,6 +23,7 @@ const complete = {
       timezone: 'Asia/Karachi',
     },
   ],
+  calendar: { name: 'India' },
   weeklyOffPattern: { daysOfWeek: [6, 0] },
   policy: {
     leaveTypes: [{ name: 'Annual', annualEntitlement: 10 }],
@@ -110,6 +111,33 @@ describe('missingConfiguration', () => {
     ).toContain('weeklyOffPattern');
   });
 
+  it('reports a team assigned to no calendar', () => {
+    // D-29: never defaulted. There is no default calendar, and falling back to
+    // Saturday and Sunday is the assumption FR-3.8 exists to forbid.
+    expect(
+      fieldsMissingFrom({
+        ...complete,
+        calendar: null,
+        weeklyOffPattern: null,
+      }),
+    ).toContain('calendarId');
+  });
+
+  it('attributes a missing weekly off to the calendar, not the team', () => {
+    // The fix is on S-26, so the prompt has to name the calendar to be
+    // actionable.
+    const gaps = missingConfiguration({ ...complete, weeklyOffPattern: null });
+    const gap = gaps.find((each) => each.field === 'weeklyOffPattern');
+
+    expect(gap.entity).toBe('Calendar India');
+  });
+
+  it('does not also report the calendar when one is assigned', () => {
+    expect(
+      fieldsMissingFrom({ ...complete, weeklyOffPattern: null }),
+    ).not.toContain('calendarId');
+  });
+
   it('accepts a weekly off pattern with no days, which is a real answer', () => {
     // A team that works every day is configured, not unconfigured. Only the
     // absence of a pattern is a gap.
@@ -152,6 +180,7 @@ describe('missingConfiguration', () => {
   it('states why each gap matters, so the prompt is actionable', () => {
     const [gap] = missingConfiguration({
       ...complete,
+      calendar: null,
       weeklyOffPattern: null,
     });
 

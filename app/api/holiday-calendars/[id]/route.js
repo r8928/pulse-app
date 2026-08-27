@@ -6,11 +6,13 @@ import {
   requireActor,
 } from '../../../../authz/guard.js';
 import { PERMISSIONS } from '../../../../constants/index.js';
-import { listTeamsOnCalendar, updateHoliday } from '../../../../database.js';
-import { recalculateDays } from '../../../../engine/recalculate.js';
+import { updateHolidayCalendar } from '../../../../database.js';
 import { errorResponse } from '../../../../utils/apiResponse.js';
 
-/** P-31's edit. `BR-15`: a mid-year correction recalculates the affected dates. */
+/**
+ * `S-26`'s rename. No recalculation: a calendar's name is not a date, and
+ * nothing the engine reads changes with it.
+ */
 export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
@@ -19,20 +21,10 @@ export async function PATCH(request, { params }) {
     assertRecordInScope(scope, actor, COMPANY_WIDE);
 
     const { version, ...patch } = await request.json();
-    const updated = await updateHoliday(id, patch, version, actor);
+    const updated = await updateHolidayCalendar(id, patch, version, actor);
 
     if (!updated) {
       return NextResponse.json({ error: 'Not found.' }, { status: 404 });
-    }
-
-    // Both dates matter: the one the holiday left and the one it moved to.
-    // Every team on the calendar sees both change (`D-31`).
-    for (const team of await listTeamsOnCalendar(updated.calendarId)) {
-      await recalculateDays(
-        null,
-        { from: patch.date ?? updated.date, to: updated.date },
-        { teamId: String(team._id) },
-      );
     }
 
     return NextResponse.json(updated);

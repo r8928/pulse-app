@@ -5,7 +5,13 @@ import {
   ROLES,
   SCOPES,
 } from '../constants/index.js';
-import { createShift, createTeam, createUser } from '../database.js';
+import {
+  createHolidayCalendar,
+  createShift,
+  createTeam,
+  createUser,
+} from '../database.js';
+import { calendarIdForTeam, giveTeamACalendar } from '../test/calendar.js';
 import { useTestDatabase } from '../test/mongo.js';
 
 /**
@@ -25,9 +31,6 @@ const teamDeleteRoute = await import(
   '../app/api/teams/[id]/soft-delete/route.js'
 );
 const policyRoute = await import('../app/api/teams/[id]/policy/route.js');
-const weeklyOffRoute = await import(
-  '../app/api/teams/[id]/weekly-off/route.js'
-);
 const shiftsRoute = await import('../app/api/shifts/route.js');
 const holidaysRoute = await import('../app/api/holidays/route.js');
 
@@ -194,20 +197,6 @@ describe('/api/teams/[id]/policy and weekly-off', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ptoValidityDays: 30 });
   });
-
-  it('sets a weekly off pattern that is not the weekend', async () => {
-    // FR-3.8.
-    admin();
-    const team = await createTeam({ name: 'General' }, actor);
-
-    const response = await weeklyOffRoute.PUT(
-      json({ daysOfWeek: [5, 6], version: null }),
-      params(String(team._id)),
-    );
-
-    expect(response.status).toBe(200);
-    expect((await response.json()).daysOfWeek).toEqual([5, 6]);
-  });
 });
 
 describe('/api/shifts and /api/holidays', () => {
@@ -290,11 +279,11 @@ describe('/api/shifts and /api/holidays', () => {
 
   it('creates a typed holiday and answers 201', async () => {
     admin();
-    const team = await createTeam({ name: 'General' }, actor);
+    const calendar = await createHolidayCalendar({ name: 'India' }, actor);
 
     const response = await holidaysRoute.POST(
       json({
-        teamId: String(team._id),
+        calendarId: String(calendar._id),
         date: '2026-03-23',
         name: 'Public holiday',
         type: HOLIDAY_TYPE.PUBLIC,
@@ -307,11 +296,11 @@ describe('/api/shifts and /api/holidays', () => {
 
   it('answers 400 for an untyped holiday', async () => {
     admin();
-    const team = await createTeam({ name: 'General' }, actor);
+    const calendar = await createHolidayCalendar({ name: 'India' }, actor);
 
     const response = await holidaysRoute.POST(
       json({
-        teamId: String(team._id),
+        calendarId: String(calendar._id),
         date: '2026-03-23',
         name: 'Something',
         type: 'BANK_HOLIDAY',
@@ -321,7 +310,7 @@ describe('/api/shifts and /api/holidays', () => {
     expect(response.status).toBe(400);
   });
 
-  it('recalculates only the team whose calendar changed (§23.4)', async () => {
+  it('recalculates only the teams on the calendar that changed (§23.4)', async () => {
     admin();
 
     const {
@@ -335,6 +324,10 @@ describe('/api/shifts and /api/holidays', () => {
 
     const aTeamWithAWorkedDay = async (name, code) => {
       const team = await createTeam({ name }, actor);
+
+      // Each team gets a calendar of its own, so a holiday added to one
+      // leaves the other's dates alone (`FR-3.7`).
+      await giveTeamACalendar(String(team._id), { daysOfWeek: [] }, actor);
 
       // §8.3: without a crossing window no work date can be resolved at all,
       // so the punches below would belong to no day.
@@ -395,15 +388,15 @@ describe('/api/shifts and /api/holidays', () => {
 
     await holidaysRoute.POST(
       json({
-        teamId: affected.teamId,
+        calendarId: await calendarIdForTeam(affected.teamId),
         date: '2026-03-23',
         name: 'Pakistan Day',
         type: HOLIDAY_TYPE.PUBLIC,
       }),
     );
 
-    // FR-3.7: each team keeps its own calendar, so the other team's day is
-    // untouched — still an ordinary working day.
+    // FR-3.7: the two teams sit on different calendars, so the other team's
+    // day is untouched — still an ordinary working day.
     expect((await getDayRecord(affected.userId, '2026-03-23')).dayType).toBe(
       'HOLIDAY',
     );

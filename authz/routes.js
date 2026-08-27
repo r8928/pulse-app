@@ -45,6 +45,10 @@ const ROUTE_RULES = [
   { pattern: /^\/teams(\/[^/]+)?$/, permission: PERMISSIONS.TEAM_READ },
 
   { pattern: /^\/settings\/access$/, permission: PERMISSIONS.PERMISSION_WRITE },
+  {
+    pattern: /^\/settings\/holiday-calendars$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
   { pattern: /^\/settings$/, permission: PERMISSIONS.CONFIG_READ },
 
   /**
@@ -112,12 +116,31 @@ const ROUTE_RULES = [
   // M-6. The path gates on team.read; the handlers assert team.write to change
   // a team and config.write to change anything inside one.
   {
-    pattern: /^\/api\/teams\/[^/]+\/(soft-delete|policy|weekly-off)$/,
+    pattern: /^\/api\/teams\/[^/]+\/(soft-delete|policy)$/,
     permission: PERMISSIONS.TEAM_READ,
   },
   { pattern: /^\/api\/teams(\/[^/]+)?$/, permission: PERMISSIONS.TEAM_READ },
   {
     pattern: /^\/api\/(shifts|holidays)\/[^/]+\/soft-delete$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  /**
+   * `S-26`. The path gates on config.read; every mutation asserts config.write
+   * in the handler, the same split the team routes above use. The static
+   * segments sit above the dynamic pattern that would otherwise swallow them.
+   *
+   * `/api/teams/[id]/weekly-off` is deliberately absent. It is gone, and
+   * unlike a retired screen it is a write endpoint with no page behind it and
+   * no link to it — so there is nothing for a stale bookmark to reach, and an
+   * unmapped path answers 404 rather than falling through as public.
+   */
+  {
+    pattern:
+      /^\/api\/holiday-calendars\/[^/]+\/(soft-delete|teams|weekly-off)$/,
+    permission: PERMISSIONS.CONFIG_READ,
+  },
+  {
+    pattern: /^\/api\/holiday-calendars(\/[^/]+)?$/,
     permission: PERMISSIONS.CONFIG_READ,
   },
 

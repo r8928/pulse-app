@@ -1,9 +1,12 @@
 import { endOfMonth, endOfYear, format, startOfYear } from 'date-fns';
 import {
+  getCalendarWeeklyOff,
+  getTeamById,
   getTeamPolicy,
   getUserById,
-  getWeeklyOffPattern,
-  listHolidays,
+  getWeeklyOffPatternForTeam,
+  listCalendarHolidays,
+  listHolidaysForTeam,
   listTeamAssignments,
   listTeamAssignmentsForUsers,
   listTenures,
@@ -45,8 +48,8 @@ async function calendarInputsFor(userId, user) {
   const weeklyOffByTeam = {};
 
   for (const teamId of teamIds) {
-    holidaysByTeam[teamId] = (await listHolidays(teamId)).items;
-    weeklyOffByTeam[teamId] = await getWeeklyOffPattern(teamId);
+    holidaysByTeam[teamId] = (await listHolidaysForTeam(teamId)).items;
+    weeklyOffByTeam[teamId] = await getWeeklyOffPatternForTeam(teamId);
   }
 
   return {
@@ -206,15 +209,21 @@ class TeamPolicyCache {
 }
 
 /**
- * A team's holidays and weekly-off pattern, read once however many colleagues
- * share it.
+ * The holidays and weekly-off pattern behind each team, read once per
+ * CALENDAR however many teams share it and however many colleagues sit on
+ * them.
  *
- * A roster of fifty across four teams is four pairs of reads rather than a
- * hundred. The cache lives for one build and is thrown away with it — holding
- * it longer would serve a stale calendar to the next request, which is the
- * bug `README.md` warns about for permission grants for the same reason.
+ * Keyed on the calendar rather than the team because a calendar is shared
+ * (`FR-3.7`): twenty teams over three calendars is three pairs of reads, not
+ * twenty. A team assigned to none caches once under the `null` key rather than
+ * being re-read per team.
+ *
+ * The cache lives for one build and is thrown away with it — holding it longer
+ * would serve a stale calendar to the next request, which is the bug
+ * `README.md` warns about for permission grants for the same reason.
  */
 class TeamCalendarCache {
+  #calendarIdByTeam = new Map();
   #holidays = new Map();
   #weeklyOff = new Map();
 
@@ -223,13 +232,23 @@ class TeamCalendarCache {
     const weeklyOffByTeam = {};
 
     for (const teamId of new Set(teamIds.filter(Boolean))) {
-      if (!this.#holidays.has(teamId)) {
-        this.#holidays.set(teamId, (await listHolidays(teamId)).items);
-        this.#weeklyOff.set(teamId, await getWeeklyOffPattern(teamId));
+      if (!this.#calendarIdByTeam.has(teamId)) {
+        const team = await getTeamById(teamId);
+        this.#calendarIdByTeam.set(teamId, team?.calendarId ?? null);
       }
 
-      holidaysByTeam[teamId] = this.#holidays.get(teamId);
-      weeklyOffByTeam[teamId] = this.#weeklyOff.get(teamId);
+      const calendarId = this.#calendarIdByTeam.get(teamId);
+
+      if (!this.#holidays.has(calendarId)) {
+        this.#holidays.set(
+          calendarId,
+          (await listCalendarHolidays(calendarId)).items,
+        );
+        this.#weeklyOff.set(calendarId, await getCalendarWeeklyOff(calendarId));
+      }
+
+      holidaysByTeam[teamId] = this.#holidays.get(calendarId);
+      weeklyOffByTeam[teamId] = this.#weeklyOff.get(calendarId);
     }
 
     return { holidaysByTeam, weeklyOffByTeam };

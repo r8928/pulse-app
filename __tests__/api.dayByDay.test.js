@@ -17,13 +17,10 @@ vi.mock('../session.js', () => ({ getSessionUser: vi.fn() }));
 const { getSessionUser } = await import('../session.js');
 const route = await import('../app/api/attendance/day-by-day/route.js');
 
-const {
-  createShift,
-  createTeam,
-  createUser,
-  setWeeklyOffPattern,
-  updateTeamPolicy,
-} = await import('../database.js');
+const { createShift, createTeam, createUser, updateTeamPolicy } = await import(
+  '../database.js'
+);
+const { giveTeamACalendar } = await import('../test/calendar.js');
 
 const at = (permission, scope) => ({ [permission]: scope });
 
@@ -64,7 +61,7 @@ describe('GET /api/attendance/day-by-day', () => {
       },
       actor,
     );
-    await setWeeklyOffPattern(teamId, { daysOfWeek: [0, 6] }, null, actor);
+    await giveTeamACalendar(teamId, { daysOfWeek: [0, 6] }, actor);
     await updateTeamPolicy(teamId, {}, null, actor);
 
     return teamId;
