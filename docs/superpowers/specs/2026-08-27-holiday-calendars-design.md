@@ -129,10 +129,17 @@ calendars called "India" are indistinguishable in the picker that assigns them.
 
 ### D-34 · Existing per-team data migrates to one calendar per team
 
-`migrateTeamCalendars()` in `database.js`, run from `scripts/seed.js` **before**
-`ensureIndexes` — the same position and the same reason as
-`migrateLegacyTeamKeys`: the unique index on `(companyId, calendarId)` cannot
-build while several rows share a null one.
+`migrateTeamCalendars()` in `database.js`, run from `scripts/seed.js` beside
+`migrateLegacyTeamKeys`.
+
+**Corrected during implementation.** The plan had it run before
+`ensureIndexes`, on the reasoning that the unique index on
+`(companyId, calendarId)` could not build while several un-migrated rows share
+a null one. Ordering alone is too fragile — the test harness builds indexes
+first, and so would any deploy that ran `ensureIndexes` before the seed. The
+index is instead **partial on `calendarId` being a string**, so it builds
+correctly against a database this migration has not reached yet while keeping
+the one-pattern-per-calendar constraint exactly.
 
 For each team holding at least one holiday or a weekly off pattern it creates
 `<Team name> calendar`, stamps `calendarId` on that team's holidays and
